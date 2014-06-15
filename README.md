@@ -3,6 +3,8 @@ A Google Maps Engine asset uploader.
 
 Hodor handles streaming large files, resumable uploads, and retrying failed uploads.
 
+![images](https://cloud.githubusercontent.com/assets/5944358/3281059/148d865e-f490-11e3-830d-a0c33bed1b47.jpeg)
+
 # Installation
 Requires Python 2.7 and the Google Client APIs.
 
