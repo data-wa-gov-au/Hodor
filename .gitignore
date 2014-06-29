@@ -1,4 +1,7 @@
-credentials-store.json
 test-data/
 venv/
+Hodor.egg-info/
+bak/
 oauth.json
+credentials-store.json
+*.pyc
