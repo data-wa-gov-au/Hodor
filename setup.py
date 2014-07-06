@@ -2,9 +2,10 @@ from setuptools import setup
 
 setup(
     name='Hodor',
-    version='0.1',
+    version='0.2',
     packages=['hodor', 'hodor.commands'],
     include_package_data=True,
+    scripts=['hodor/retries.py'],
     install_requires=[
         'Click',
         'google-api-python-client',

@@ -71,6 +71,9 @@ class Context(object):
       if credentials is None or credentials.invalid:
         credentials = run_oauth2(flow, credential_storage)
 
+      # if credentials.access_token_expired is False:
+          # credentials.refresh(httplib2.Http())
+
       self.vlog('Constructing Google Maps Engine service...')
       http = credentials.authorize(httplib2.Http())
       return discovery_build('mapsengine', self.version, http=http)
