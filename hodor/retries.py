@@ -35,7 +35,7 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
       # '{0}. {1}'.format(count, thing)
 
     # Refresh expired access tokens
-    if exception.resp.status == 403:
+    if exception.resp.status == 401:
       print "Token Expired, Reauthenticating..."
       ctx = args[0]
       ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
@@ -45,7 +45,7 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
     else:
       raise exception
     print >> sys.stderr, "Caught '%s', %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay)
-    
+
 
 def example_exc_handler(tries_remaining, exception, delay):
     """Example exception handler; prints a warning to stderr.
