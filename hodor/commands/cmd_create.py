@@ -20,11 +20,43 @@ def cli(ctx, chunk_size, asset_processing_wait):
 
 
 @cli.command()
+@click.option('--mosaic-id',
+              help="The raster mosaic to add the newly created raster to.")
+@click.option('--process-mosaic/--no-process-mosaic', default=False,
+              help="Whether the given raster mosaic should be processed after the raster is added. Defaults to false.")
 @click.argument('configfile', type=click.File('r'))
 @pass_context
-def raster(ctx, configfile):
+def raster(ctx, mosaic_id, process_mosaic, configfile):
   """Create a new raster asset in Google Maps Engine"""
-  uploader(ctx, ctx.service.rasters(), configfile)
+  @retries((ctx.processing_timeout_mins * 60) / 10, delay=10, backoff=1)
+  def poll_asset_processing(ctx, mosaic_id):
+    response = ctx.service.rasterCollections().get(id=mosaic_id).execute()
+    if response['processingStatus'] in ['complete', 'failed']:
+      return response
+    else:
+      raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
+
+  # Create new raster asset
+  asset = uploader(ctx, ctx.service.rasters(), configfile)
+
+  # Optionally, add it to an existing raster mosaic
+  if mosaic_id is not None:
+    ctx.service.rasterCollections().rasters().batchInsert(id=mosaic_id, body={"ids":[asset["id"]]}).execute()
+    ctx.log("Asset '%s' added to mosaic '%s'" % (asset["id"], mosaic_id))
+
+    if process_mosaic == True:
+      ctx.service.rasterCollections().process(id=mosaic_id).execute()
+      ctx.log("Mosaic '%s' processing started" % (mosaic_id))
+
+      # Poll until asset has processed
+      start_time = time.time()
+      response = poll_asset_processing(ctx, mosaic_id)
+      if response["processingStatus"] == "complete":
+        ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
+        return response
+      elif response["processingStatus"] == "failed":
+        ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
+        raise Exception("Asset failed to process")
 
 
 @cli.command()
