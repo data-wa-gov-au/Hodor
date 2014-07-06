@@ -6,6 +6,7 @@ import httplib2
 import time
 import random
 import click
+import socket
 
 import mimetypes
 mimetypes.init()
@@ -24,6 +25,11 @@ from apiclient.errors import HttpError
 from apiclient.http import MediaFileUpload
 
 CONTEXT_SETTINGS = dict(auto_envvar_prefix='HODOR')
+
+# Fix for the TCP send buffer being so riciculosuly low on Windows (8192)
+# These two lines of code represent two days of work by multiple people.
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
 
 class Context(object):
 
