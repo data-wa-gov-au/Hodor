@@ -21,6 +21,9 @@
 
 import sys
 from time import sleep
+from apiclient.errors import HttpError
+from socket import error as socket_error
+from hodor.cli import Context
 
 
 def gme_exc_handler(tries_remaining, exception, delay, args):
@@ -34,17 +37,25 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
     # for count, thing in enumerate(args):
       # '{0}. {1}'.format(count, thing)
 
+    # By convention Hodor always passed Context as the first argument.
+    ctx = args[0]
+
     # Refresh expired access tokens
-    if exception.resp.status == 401:
-      print "Token Expired, Reauthenticating..."
-      ctx = args[0]
-      ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
-    # Retry "server didn't respond in time", GME's random "internal server error", or QPS exceeded errors
-    elif exception.resp.status in [500, 503]:
-      print "Caught a %s error which is probably non-fatal, trying again..."
+    if isinstance(exception, HttpError):
+      if exception.resp.status == 401:
+        print "Token Expired, Reauthenticating..."
+        if isinstance(ctx, Context):
+          ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
+      # Retry "server didn't respond in time", GME's random "internal server error", or QPS exceeded errors
+      elif exception.resp.status in [500, 503]:
+        print "Caught a %s error which is probably non-fatal, trying again..."
+      else:
+        raise exception
+
+    if isinstance(ctx, Context):
+      ctx.log("%s, %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay))
     else:
-      raise exception
-    print >> sys.stderr, "Caught '%s', %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay)
+      print >> sys.stderr, "Caught '%s', %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay)
 
 
 def example_exc_handler(tries_remaining, exception, delay):
@@ -56,7 +67,7 @@ def example_exc_handler(tries_remaining, exception, delay):
     print >> sys.stderr, "Caught '%s', %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay)
 
 
-def retries(max_tries, delay=1, backoff=2, exceptions=(Exception,), hook=None):
+def retries(max_tries, delay=1, backoff=2, exceptions=(Exception, HttpError, socket_error), hook=gme_exc_handler):
     """Function decorator implementing retrying logic.
 
     delay: Sleep this many seconds * backoff * try number after failure

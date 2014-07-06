@@ -1,11 +1,10 @@
 import click
-from apiclient.errors import HttpError
-from retries import retries, gme_exc_handler
+from retries import retries
 from hodor.cli import pass_context
 
 @click.command('projects', short_help='List accessible Google Maps Engine projects.')
 @pass_context
-@retries(2, exceptions=(HttpError), hook=gme_exc_handler)
+@retries(2)
 def cli(ctx):
   response = ctx.service.projects().list().execute()
   for project in response['projects']:

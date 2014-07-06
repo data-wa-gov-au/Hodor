@@ -4,8 +4,7 @@ import os
 import time
 
 from os import walk
-from apiclient.errors import HttpError
-from retries import retries, gme_exc_handler
+from retries import retries
 from hodor.cli import pass_context
 
 @click.group(short_help="Create assets in Google Maps Engine")
@@ -17,7 +16,7 @@ from hodor.cli import pass_context
 @pass_context
 def cli(ctx, chunk_size, asset_processing_wait):
   ctx.chunk_size = chunk_size
-  ctx.asset_processing_wait = asset_processing_wait * 60 * 60
+  ctx.processing_timeout_mins = asset_processing_wait
 
 
 @cli.command()
@@ -37,18 +36,17 @@ def vector(ctx, configfile):
 
 
 def uploader(ctx, resource, configfile):
-  @retries(10, exceptions=(HttpError), hook=gme_exc_handler)
+  @retries(10)
   def create_asset(resource, config):
     return resource.upload(body=config).execute()
 
-  @retries(100, delay=2)
+  @retries((ctx.processing_timeout_mins * 60) / 10, delay=10, backoff=1)
   def poll_asset_processing(ctx, resource, assetId):
     response = resource.get(id=assetId).execute()
     if response['processingStatus'] in ['complete', 'failed']:
       return response
     else:
-      ctx.log("Status of asset is '%s', waiting." % (response["processingStatus"]))
-      raise Exception("Hodor Hodor Hodor! Asset failed to process in time!")
+      raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
 
   config = json.load(configfile)
 
