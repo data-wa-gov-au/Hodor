@@ -9,8 +9,8 @@ from hodor.cli import pass_context
 
 @click.group(short_help="Create assets in Google Maps Engine")
 # https://google-api-python-client.googlecode.com/hg/docs/epy/apiclient.http.MediaFileUpload-class.html
-@click.option('--chunk-size', default=-1,
-              help='File chunk size in kilobytes. Defaults to using streaming where available.')
+@click.option('--chunk-size', default=1000000,
+              help='File chunk size in bytes. Defaults to 10mb chunks.')
 @click.option('--asset-processing-wait', default=90,
               help='Length of time in minutes we should wait for an asset to process before giving up. Defaults to 90 minutes.')
 @pass_context
