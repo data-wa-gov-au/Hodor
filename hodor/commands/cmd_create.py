@@ -60,11 +60,16 @@ def raster(ctx, mosaic_id, process_mosaic, configfile):
 
 
 @cli.command()
+@click.option('--layer-configfile', type=click.File('r'),
+              help="An optional JSON configuration file containing layer(s) to create from the new table.")
 @click.argument('configfile', type=click.File('r'))
 @pass_context
-def vector(ctx, configfile):
+def vector(ctx, layer_configfile, configfile):
   """Create a new vector asset in Google Maps Engine"""
-  uploader(ctx, ctx.service.tables(), configfile)
+  asset = uploader(ctx, ctx.service.tables(), configfile)
+
+  if layer_configfile:
+    create_vector_layers(ctx, asset["id"], layer_configfile)
 
 
 def uploader(ctx, resource, configfile):
@@ -84,7 +89,7 @@ def uploader(ctx, resource, configfile):
 
   # Fetch payload files
   config['files'] = {}
-  payloaddir = os.path.dirname(configfile.name) + "/payload"
+  payloaddir = os.path.join(os.path.dirname(configfile.name), "payload")
   for (dirpath, dirnames, filenames) in walk(payloaddir):
     config['files'] = [{'filename': i} for i in filenames]
     break
@@ -108,3 +113,52 @@ def uploader(ctx, resource, configfile):
   elif response["processingStatus"] == "failed":
     ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
     raise Exception("Asset failed to process")
+
+
+def create_vector_layers(ctx, assetId, configfile):
+  @retries(10)
+  def create_layer(ctx, config):
+    return ctx.service.layers().create(body=config, process=True).execute()
+
+  @retries((ctx.processing_timeout_mins * 60) / 10, delay=10, backoff=1)
+  def poll_asset_processing(ctx, assetId):
+    response = ctx.service.layers().get(id=assetId).execute()
+    if response['processingStatus'] in ['complete', 'failed']:
+      return response
+    else:
+      raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
+
+  config = json.load(configfile)
+
+  for layer in config["layers"]:
+    # Patch layers.json config with the optional styleFile and infoWindowFile parameters
+    if "styleFile" in layer:
+      styleFile = os.path.join(os.path.dirname(configfile.name), layer["styleFile"])
+      if os.path.exists(styleFile):
+        with open(styleFile) as f:
+          layer["style"] = json.load(f)
+        del layer["styleFile"]
+
+    if "infoWindowFile" in layer:
+      if "style" in layer:
+        infoWindowFile = os.path.join(os.path.dirname(configfile.name), layer["infoWindowFile"])
+        if os.path.exists(infoWindowFile):
+          with open(infoWindowFile) as f:
+            layer["style"]["featureInfo"]["content"] = f.read()
+      del layer["infoWindowFile"]
+
+    # Create layer
+    layer["projectId"] = config["projectId"]
+    layer["datasources"] = [{"id": assetId}]
+    asset = create_layer(ctx, layer)
+    ctx.log("Asset '%s' created with id %s" % (asset['name'], asset['id']))
+
+    # Poll until asset has processed
+    start_time = time.time()
+    response = poll_asset_processing(ctx, asset['id'])
+    if response["processingStatus"] == "complete":
+      ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
+      return response
+    elif response["processingStatus"] == "failed":
+      ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
+      raise Exception("Asset failed to process")
