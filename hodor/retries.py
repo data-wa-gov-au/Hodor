@@ -47,7 +47,7 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
         if isinstance(ctx, Context):
           ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
       # Retry "server didn't respond in time", GME's random "internal server error", or QPS exceeded errors
-      elif exception.resp.status in [500, 503]:
+    elif exception.resp.status in [500, 503, 403]:
         print "Caught a %s error which is probably non-fatal, trying again..."
       else:
         raise exception
