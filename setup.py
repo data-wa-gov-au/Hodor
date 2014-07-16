@@ -10,8 +10,7 @@ setup(
         'Click',
         'google-api-python-client',
         'python-gflags',
-        'httplib2',
-        'progressbar'
+        'httplib2'
     ],
     entry_points='''
         [console_scripts]

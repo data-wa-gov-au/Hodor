@@ -7,7 +7,6 @@ import time
 import random
 import click
 import socket
-import progressbar
 
 import mimetypes
 mimetypes.init()
@@ -102,21 +101,18 @@ class Context(object):
       while response is None:
         error = None
         try:
+          start_time_chunk = time.time()
           progress, response = request.next_chunk()
           if progress:
-            if 'pbar' not in locals():
-              pbar = progressbar.ProgressBar(
-                        widgets=[progressbar.Percentage(),
-                                 progressbar.Bar()],
-                        maxval=100).start()
-            pbar.update(int(progress.progress() * 100))
+            Mbps = ((self.chunk_size / (time.time() - start_time_chunk)) * 0.008 * 0.001)
+            print "%s%% (%s/Mbps)" % (round(progress.progress() * 100), round(Mbps, 2))
         except HttpError, err:
           # Contray to the documentation GME does't return 201/200 for the last chunk
           if err.resp.status == 204:
             response = ""
           else:
             error = err
-            if err.resp.status < 500:
+            if err.resp.status < 500 and err.resp.status != 410:
               raise
         except RETRYABLE_ERRORS, err:
           error = err
@@ -127,6 +123,8 @@ class Context(object):
         else:
           progressless_iters = 0
 
+      if 'pbar' in locals():
+        del pbar
       self.log("Upload completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
     def handle_progressless_iter(self, error, progressless_iters):
