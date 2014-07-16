@@ -27,7 +27,7 @@ In order to use Hodor you need to setup a ***Native Application*** OAuth client 
 ```
 
 # Usage
-Hodor knows about uploading raster and vector assets and takes asset configuration metadata from a JSON file.
+Hodor knows about uploading and creating raster and vector assets and takes asset configuration metadata from a JSON file.
 
 To use Hodor, first activate your virtual environment.
 
@@ -35,11 +35,16 @@ To use Hodor, first activate your virtual environment.
 . venv/bin/activate
 ```
 
-Hodor currently handles uploading new raster and vector data, as well as listing your available GME projects. e.g.
+Hodor currently handles uploading new raster and vector data, creating layers, add to raster collections, as well as listing your available GME projects. e.g.
 
 Upload a new raster:
 ```
-hodor create raster "test-data/Alkimos 1963/config.json"
+hodor create raster test-data/Alkimos 1963/config.json
+```
+
+Upload a new vector table and create a layer from it:
+```
+hodor create vector --create-layer=test-data/daa_003_subet/layers.json test-data/daa_003_subet/config.json
 ```
 
 List your GME projects:
@@ -78,6 +83,33 @@ See the GME API documentation for the minimum required fields for [vector](https
   }
 }
 ```
+
+## layers.json
+```layers.json``` should contain your layer metadata fields in JSON format as defined by Google Maps Engine.
+
+See the [layer create documentation](https://developers.google.com/maps-engine/documentation/layer-create) for the minium required fields.
+
+```json
+{
+  "projectId": "06151154151057343427",
+  "layers": [
+    {
+      "name": "daa_003_subset layer",
+      "datasourceType": "table",
+      "draftAccessList": "Map Editors",
+      "tags": ["Hodor"],
+      "styleFile": "style.json",
+      "infoWindowFile": "infoWindow.html"
+    }
+  ]
+}
+```
+
+```layers.json``` supports two optional fields:
+
+> *styleFile* is an optional parameter that will use the given file as the layer's style document.
+>
+> *infoWindowFile* is an optional parameter that will read the given HTML file into the layer's style document.
 
 # Documentation
 Some associated documentation for anyone wishing to build on or understand this wee tool.
