@@ -7,6 +7,7 @@ import time
 import random
 import click
 import socket
+import progressbar
 
 import mimetypes
 mimetypes.init()
@@ -103,7 +104,12 @@ class Context(object):
         try:
           progress, response = request.next_chunk()
           if progress:
-            self.log('Upload %d%%' % (100 * progress.progress()))
+            if 'pbar' not in locals():
+              pbar = progressbar.ProgressBar(
+                        widgets=[progressbar.Percentage(),
+                                 progressbar.Bar()],
+                        maxval=100).start()
+            pbar.update(int(progress.progress() * 100))
         except HttpError, err:
           # Contray to the documentation GME does't return 201/200 for the last chunk
           if err.resp.status == 204:
