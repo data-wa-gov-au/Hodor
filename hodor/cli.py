@@ -176,3 +176,4 @@ def cli(ctx, verbose, retry):
   ctx.verbose = verbose
   ctx.retry = retry
   ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
+  ctx.thread_safe_services = {}
