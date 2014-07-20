@@ -6,17 +6,34 @@ Hodor handles streaming large files, resumable uploads, and retrying failed uplo
 ![images](https://cloud.githubusercontent.com/assets/5944358/3281059/148d865e-f490-11e3-830d-a0c33bed1b47.jpeg)
 
 # Installation
-Requires Python 2.7 and the Google Client APIs.
+Requires Python 2.7 (32bit) and the Google Client APIs.
 
+> If you receive the error *"setuptools pip failed with error code 1"* whilst setting up your virtualenv you need to downgrade to virtualenv 1.11.2 due to [this](https://github.com/pypa/virtualenv/issues/524) issue.
+
+```
+pip install virtualenv==1.11.2
+```
+
+## Linux
 ```
 virtualenv venv
 . venv/bin/activate
 pip install --editable .
 ```
 
-**Note:** On first run Hodor will open your browser and prompt you to authorise him to access Google Maps Engine on your behalf. When the ***The authentication flow has completed*** message shows you can close the tab and return to your terminal.
+## Windows
 
-## OAuth2
+```
+virtualenv venv
+venv\Scripts\activate.bat
+pip install --editable .
+```
+
+> If you receive the error *"error: Unable to find vcvarsall.bat"* whilst Hodor is installing you need to install a C compiler due to [this](http://stackoverflow.com/questions/2817869/error-unable-to-find-vcvarsall-bat) issue.
+> Simply download [Visual Studio C++ 2008 Express Edition](http://download.microsoft.com/download/A/5/4/A54BADB6-9C3F-478D-8657-93B3FC9FE62D/vcsetup.exe), open another command prompt, and away you go.
+
+
+# OAuth2
 In order to use Hodor you need to setup a ***Native Application*** OAuth client in the [Google Developers Console](https://cloud.google.com/console) and create an ```oauth.json``` file in the same directory as Hodor with your clientId and secret.
 
 ```json
@@ -25,6 +42,9 @@ In order to use Hodor you need to setup a ***Native Application*** OAuth client 
   "client_secret": "{your-client-secret}"
 }
 ```
+
+**Note:** On first run Hodor will open your browser and prompt you to authorise him to access Google Maps Engine on your behalf. When the ***The authentication flow has completed*** message shows you can close the tab and return to your terminal.
+
 
 # Usage
 Hodor knows about uploading and creating raster and vector assets and takes asset configuration metadata from a JSON file.
