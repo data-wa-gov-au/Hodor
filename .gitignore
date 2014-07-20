@@ -5,3 +5,5 @@ bak/
 oauth.json
 credentials-store.json
 *.pyc
+
+oauth-sa.json

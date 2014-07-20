@@ -10,6 +10,7 @@ setup(
         'Click',
         'google-api-python-client',
         'python-gflags',
+        'pyOpenSSL',
         'httplib2',
         'multiprocessing'
     ],
