@@ -26,11 +26,6 @@ from apiclient.http import MediaFileUpload
 
 CONTEXT_SETTINGS = dict(auto_envvar_prefix='HODOR')
 
-# Fix for the TCP send buffer being so riciculosuly low on Windows (8192)
-# These two lines of code represent two days of work by multiple people.
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
-
 class Context(object):
 
     def __init__(self):
@@ -82,7 +77,19 @@ class Context(object):
 
       self.vlog('Constructing Google Maps Engine service...')
       http = credentials.authorize(httplib2.Http())
-      return discovery_build('mapsengine', self.version, http=http)
+      resource = discovery_build('mapsengine', self.version, http=http)
+
+      # Fix for the default TCP send buffer being so riciculosuly low on Windows (8192)
+      # These lines of code represent two days of work by multiple people.
+      if len(resource._http.connections.keys()) > 1:
+        raise Exception("This may be a problem - we found more than one connection open!")
+
+      connection = resource._http.connections.get(resource._http.connections.keys()[0]) # https:www.googleapis.com
+      self.log("Changing TCP send buffer from %s to %s" % (connection.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF), 5242880))
+      connection.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
+
+      return resource
+
 
     def upload_file(self, file, id, resource):
       # Retry transport and file IO errors.

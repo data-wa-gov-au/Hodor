@@ -9,8 +9,8 @@ from hodor.cli import pass_context
 
 @click.group(short_help="Create assets in Google Maps Engine")
 # https://google-api-python-client.googlecode.com/hg/docs/epy/apiclient.http.MediaFileUpload-class.html
-@click.option('--chunk-size', default=1000000,
-              help='File chunk size in bytes. Defaults to 10mb chunks.')
+@click.option('--chunk-size', default=-1,
+              help='File chunk size in bytes. Defaults to using streaming to send files.')
 @click.option('--asset-processing-wait', default=90,
               help='Length of time in minutes we should wait for an asset to process before giving up. Defaults to 90 minutes.')
 @pass_context
@@ -88,7 +88,6 @@ def uploader(ctx, resource, configfile):
   config = json.load(configfile)
 
   # Fetch payload files
-  config['files'] = {}
   payloaddir = os.path.join(os.path.dirname(configfile.name), "payload")
   for (dirpath, dirnames, filenames) in walk(payloaddir):
     config['files'] = [{'filename': i} for i in filenames]
