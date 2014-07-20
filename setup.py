@@ -13,7 +13,8 @@ setup(
         'pyOpenSSL',
         'httplib2',
         'pprintpp',
-        'multiprocessing'
+        'multiprocessing',
+        'shapely'
     ],
     entry_points='''
         [console_scripts]
