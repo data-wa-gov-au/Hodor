@@ -12,6 +12,7 @@ setup(
         'python-gflags',
         'pyOpenSSL',
         'httplib2',
+        'pprintpp',
         'multiprocessing'
     ],
     entry_points='''
