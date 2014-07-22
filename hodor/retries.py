@@ -20,6 +20,7 @@
 
 
 import sys
+import json
 from time import sleep
 from apiclient.errors import HttpError
 from socket import error as socket_error
@@ -46,14 +47,21 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
         print "Token Expired, Reauthenticating..."
         if isinstance(ctx, Context):
           ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
-      # Retry "server didn't respond in time", GME's random "internal server error", or QPS exceeded errors
-      elif exception.resp.status not in [500, 503, 403, 410]:
+      elif exception.resp.status in [403, 503]:
+      # Allow fatal errors to bubble up - nothing we can do about them here
+        content = json.loads(exception.content)
+        if content['error']['errors'][0]['reason'] in ['queryTooExpensive', 'backendError']:
+          raise exception
+      # Retry "server didn't respond in time", GME's random "internal server error", or rate limit exceeded errors
+      elif exception.resp.status not in [500, 503, 403, 410, 429]:
         raise exception
 
     if isinstance(ctx, Context):
       ctx.log("%s, %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay))
     else:
-      print >> sys.stderr, "Caught '%s', %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay)
+      message = json.loads(exception.content)['error']['message']
+      message += " " + json.loads(exception.content)['error']['errors'][0]['reason']
+      print >> sys.stderr, "Caught '%s' (%s), %d tries remaining, sleeping for %s seconds" % (message, exception.resp.status, tries_remaining, round(delay, 2))
 
 
 def example_exc_handler(tries_remaining, exception, delay):
@@ -103,7 +111,7 @@ def retries(max_tries, delay=1, backoff=2, exceptions=(Exception, HttpError, soc
                         sleep(mydelay)
                         mydelay = mydelay * backoff
                     else:
-                        raise
+                        raise e
                 else:
                     break
         return f2

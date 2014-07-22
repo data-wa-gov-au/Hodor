@@ -7,3 +7,6 @@ credentials-store.json
 *.pyc
 
 oauth-sa.json
+
+temp-bboxes.json
+temp-features.json
