@@ -95,7 +95,7 @@ def uploader(ctx, resource, configfile):
 
   # Create asset and upload payload files
   response = create_asset(resource, config)
-  ctx.log("Asset '%s' created with id %s" % (response['name'], response['id']))
+  ctx.log("Table '%s' created with id %s" % (response['name'], response['id']))
 
   # Upload the payload files
   start_time = time.time()
@@ -150,7 +150,7 @@ def create_vector_layers(ctx, assetId, configfile):
     layer["projectId"] = config["projectId"]
     layer["datasources"] = [{"id": assetId}]
     asset = create_layer(ctx, layer)
-    ctx.log("Asset '%s' created with id %s" % (asset['name'], asset['id']))
+    ctx.log("Layer '%s' created with id %s" % (asset['name'], asset['id']))
 
     # Poll until asset has processed
     start_time = time.time()
