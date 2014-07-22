@@ -99,6 +99,7 @@ class Context(object):
       resource = discovery_build('mapsengine', self.version, http=http)
 
       self.log("Access Token: %s" % credentials.access_token)
+      self.access_token = credentials.access_token # For handcrafted requests to exp2
 
       # Fix for the default TCP send buffer being so riciculosuly low on Windows (8192)
       # These lines of code represent two days of work by multiple people.
