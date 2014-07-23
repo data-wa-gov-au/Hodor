@@ -47,32 +47,47 @@ In order to use Hodor you need to setup a ***Native Application*** OAuth client 
 
 
 # Usage
-Hodor knows about uploading and creating raster and vector assets and takes asset configuration metadata from a JSON file.
+Hodor knows about:
 
-To use Hodor, first activate your virtual environment.
 
+- Uploading and creating raster and vector assets via ```create raster``` ```create vector```
+- Bulk ingest of raster assets via ```bulk-load```
+- Listing and searching of large vector tables via ```features list``` (WIP)
+- Modifying the contents of vector tables via ```update``` (WIP)
+
+Commands in Hodor are controlled via JSON configuration files and optional command-line flags. To work out what capabilities a certain Hodor command has simply pass ``--help``.
+
+To begin using Hodor, first activate your virtual environment:
+
+**Linux**
 ```
 . venv/bin/activate
 ```
 
-Hodor currently handles uploading new raster and vector data, creating layers, add to raster collections, as well as listing your available GME projects. e.g.
-
-Upload a new raster:
+**Windows**
 ```
-hodor create raster test-data/Alkimos 1963/config.json
+venv/Scripts/activate.bat
+```
+
+## Creating Raster & Vector Assets
+Hodor can upload raster and vector data to create new assets and, optionally, directly create new layers or append to an existing raster collection.
+
+Hodor currently handles uploading new raster and vector data, creating layers, add to raster collections e.g.
+
+Upload a new raster image:
+```
+hodor create raster "test-data/Alkimos 1963/config.json"
 ```
 
 Upload a new vector table and create a layer from it:
 ```
-hodor create vector --create-layer=test-data/daa_003_subet/layers.json test-data/daa_003_subet/config.json
+hodor create vector --layer-configfile=test-data/daa_003_subet/layers.json "test-data/daa_003_subet/config.json"
 ```
 
-List your GME projects:
+Upload a new raster image and add it to an existing raster mosaic:
 ```
-hodor projects
+hodor create raster --mosaic-id=1234-5678 "test-data/Alkimos 1963/config.json"
 ```
-
-Hodor uses the [apiclient.http.MediaFileUpload](https://google-api-python-client.googlecode.com/hg/docs/epy/apiclient.http.MediaFileUpload-class.html) method that comes with streaming for large files and resumable uploads. It will continue to poll GME until your newly created asset has finished processing (within some sensible defaults)
 
 Recommended directory structure:
 
@@ -81,6 +96,16 @@ Recommended directory structure:
         config.json     -- Store your asset metadata here
         payload/        -- Store your data here (e.g. Shapefiles, JPEG2000)
 
+## Bulk Ingest
+Hodor supports bulk ingest of raster assets based on a single JSON confguration file.
+
+```
+hodor bulk-load raster "test-data/raster_birds/config.json"
+```
+
+In this mode Hodor will create one new raster asset for every file in your ```payload``` directory. Each asset will be based on the template information provided in ```config.json```, with the name the asset being set to the name of the file.
+
+# JSON Config Files
 ## config.json
 ```config.json``` should contain your asset metadata fields in JSON format as defined by Google Maps Engine.
 

@@ -116,11 +116,12 @@ class Context(object):
     def upload_file(self, file, id, resource):
       # Retry transport and file IO errors.
       RETRYABLE_ERRORS = (httplib2.HttpLib2Error, IOError)
+      chunk_size = chunk_size = getattr(self, 'chunk_size', -1)
 
       self.log("Uploading file '%s'" % (file))
       start_time = time.time()
 
-      media = MediaFileUpload(file, chunksize=self.chunk_size, resumable=True)
+      media = MediaFileUpload(file, chunksize=chunk_size, resumable=True)
       if not media.mimetype():
         raise Exception("Could not determine mime-type. Please make lib mimetypes aware of it.")
       request = resource.files().insert(id=id, filename=os.path.basename(file), media_body=media)
@@ -133,7 +134,7 @@ class Context(object):
           start_time_chunk = time.time()
           progress, response = request.next_chunk()
           if progress:
-            Mbps = ((self.chunk_size / (time.time() - start_time_chunk)) * 0.008 * 0.001)
+            Mbps = ((chunk_size / (time.time() - start_time_chunk)) * 0.008 * 0.001)
             print "%s%% (%s/Mbps)" % (round(progress.progress() * 100), round(Mbps, 2))
         except HttpError, err:
           # Contray to the documentation GME does't return 201/200 for the last chunk
