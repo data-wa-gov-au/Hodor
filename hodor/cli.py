@@ -190,7 +190,8 @@ class HodorCLI(click.MultiCommand):
                 name = name.encode('ascii', 'replace')
             mod = __import__('hodor.commands.cmd_' + name,
                              None, None, ['cli'])
-        except ImportError:
+        except ImportError as e:
+            print e
             return
         return mod.cli
 
