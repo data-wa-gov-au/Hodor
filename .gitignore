@@ -2,11 +2,11 @@ test-data/
 venv/
 Hodor.egg-info/
 bak/
-oauth.json
 credentials-store.json
 *.pyc
 
+oauth.json
 oauth-sa.json
 
-temp-bboxes.json
-temp-features.json
+*-features*.json
+temp-*.json

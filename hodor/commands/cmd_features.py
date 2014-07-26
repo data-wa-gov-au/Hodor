@@ -1,32 +1,24 @@
 import click
 from pprintpp import pprint as pp
-from shapely.geometry import box
+from shapely.geometry import box as bbox2poly
 from apiclient.errors import HttpError
 import time
 import json
 import os
 import multiprocessing
+import random
+from math import ceil
+from hodor.exceptions import QueryTooExpensive, BackendError, QPSTooLow
+from multiprocessing import Manager, Pool
 from retries import retries
 from hodor.cli import pass_context
+
+# @TODO Understand multiprocessing, Pool, and Manager better
 
 @click.group()
 @pass_context
 def cli(ctx):
   pass
-
-# request.add_response_callback(cb)
-def cb(resp):
-  pp(resp)
-
-def bbox2poly(bbox):
-  """Transform a BBOX into a GME-style WKT Polygon.
-
-  Parameters
-  ----------
-  bbox : list
-    A bounding box in the traditional order of [minx, miny, maxx, maxy]
-  """
-  return box(*bbox).wkt
 
 def bbox2quarters(bbox):
   """Split a BBOX into four equal quarters.
@@ -46,202 +38,196 @@ def bbox2quarters(bbox):
     [bbox[0],           bbox[1] + delta_y, bbox[0] + delta_x, bbox[3]]            # NW
   ]
 
-lock = None
-def initialize_lock(l):
-   global lock
-  #  print "initialize_lock"
-   lock = l
-
-# Unless we're just fucking up the writing of the json? Try on a small area
-# @TODO Store the features in memory? Will only work for non-huge requests...
 
 @cli.command()
-
+@click.option('-where', type=str,
+              help='An SQL-like query to run alongside the spatial constraint')
+@click.option('-bbox', type=str,
+              help='A bounding box describing the area to confine the query to')
 @click.argument('table-id', type=str)
+@click.argument('outfile', type=click.File(mode='w'))
 @pass_context
-def list(ctx, table_id):
-  """Retrieve features from a vector table."""
-  minrequiredqps = 10
-  temp_bboxes = 'temp-bboxes.json'
-  temp_features = 'temp-features.json'
+def list(ctx, where, bbox, table_id, outfile):
+  """Retrieve features from a vector table.
 
-  # with open(temp_features) as f:
-  #   features = json.load(f)
-  # print len(features)
-  # exit()
+  Parameters
+  ----------
+  ctx: Context
+    A Click Context object.
+  table_id: int
+    The GME vector tableId to query
+  """
 
-  # table = ctx.service.tables().get(id=table_id, fields='bbox').execute()
-  # pp(table)
+  def get_viable_bboxes(bbox, pkey):
+    """Calculate the bounding boxes within a given area
+      that it's viable to query given GME's known limits.
 
-  def getviablebboxes(bbox):
-    @retries(5)
-    def query(polygon):
-      return ctx.service.tables().features().list(
+    Parameters
+    ----------
+    bbox: list
+      A bounding box in the traditional order of [minx, miny, maxx, maxy]
+    """
+    @retries(10, delay=0.25, backoff=0.25)
+    def features_list(polygon, pkey):
+      request_start_time = time.time()
+      response = ctx.service.tables().features().list(
                   id=table_id, maxResults=1,
-                  select="gx_id",
+                  select=pkey,
                   intersects=polygon
       ).execute()
 
-    bboxes = bbox2quarters(bbox) # Split to at least four separate bboxes
+      # Obey GME's QPS limits
+      request_elapsed_time = time.time() - request_start_time
+      nap_time = max(0, 1.3 - request_elapsed_time)
+      time.sleep(nap_time)
 
-    valid_bboxes = []
-    i = 999
-    # for i, bbox in enumerate(bboxes):
-    for bbox in bboxes:
-    # i = 0
-    # while bboxes:
+      return response
+
+    untestedbboxes = bbox2quarters(bbox) # Split the input into at least four separate bounding boxes
+    viablebboxes = []
+    while untestedbboxes:
       try:
-        # bbox = bboxes.pop(0)
-        # print bbox
-        polygon = box(*bbox)
-        response = query(polygon)
-        print "#%s AQPS: %s, Features: %s (%s/%s)" % (i, response['allowedQueriesPerSecond'], len(response['features']), i, len(bboxes))
+        bbox = untestedbboxes.pop(0)
+        response = features_list(bbox2poly(*bbox), pkey)
 
-        if len(response['features']) == 0:
-          print "## Discarding"
-          # del bboxes[i]
-        elif response['allowedQueriesPerSecond'] < minrequiredqps:
-          raise Exception("QPS too low.")
+        if response['allowedQueriesPerSecond'] < minrequiredqps:
+          raise QPSTooLow("Query too expensive.")
 
-        valid_bboxes.append(bbox)
-        time.sleep(0.5)
-      except (HttpError, Exception) as err:
-        # print err
-        msg = err.message
-        if 'content' in err:
-          msg = err.content
-        print "## Splitting (%s)" % (msg)
-        b2 = bbox2quarters(bbox)
-        # print "## Adding"
-        # pp(b2)
-        bboxes.extend(b2)
-        # del bboxes[i]
-      # i += 1
-    return valid_bboxes
+        if len(response['features']) > 0:
+          viablebboxes.append(bbox)
+          ctx.log("%s viable bounding boxes, %s remaining to test" % (len(viablebboxes), len(untestedbboxes)))
 
-  # Dummy bboxes
-  # bbox = [112.92112388804973, -35.180887282568534, 129.0019274186415, -13.745958064667725] # Most of WA
-  bbox = [113.423171,-35.276339,124.134841,-31.094568] # The South West and inland a bit
-  # bbox = [114.331765,-35.098718,119.6876,-33.028397] # The South West
-  # bbox = [114.779758,-34.526107,117.457675,-33.49019] # Margaret River - Augusta
-  # bbox = [114.779758, -34.008148500000004, 116.1187165, -33.49019] # Margaret River
+      except (QueryTooExpensive, QPSTooLow) as e:
+        ctx.vlog("%s got error '%s', splitting." % (bbox, e))
+        untestedbboxes.extend(bbox2quarters(bbox))
 
-  if os.path.isfile(temp_bboxes):
-    print "Retrieved bboxes from cache"
-    with open(temp_bboxes) as f:
-      bboxes = json.load(f)
+    # Shuffle to distribute the expensive queries across the threads
+    random.shuffle(viablebboxes)
+    return viablebboxes
+
+  # Init config
+  minrequiredqps = 10
+  processes = 10
+
+  # Retrieve the primary key column
+  table = ctx.service.tables().get(id=table_id, fields="schema,bbox").execute()
+  pkey = table['schema']['primaryKey']
+
+  # Fetch bounding boxes
+  ctx.log("Calculating viable bounding boxes (this can take awhile)...")
+  if bbox is not None:
+    bbox = [float(i) for i in bbox.split(", ")]
   else:
-    bboxes = getviablebboxes(bbox)
+    bbox = table['bbox']
+  bboxes = get_viable_bboxes(bbox, pkey)
+  ctx.log("Querying %s bounding boxes..." % (len(bboxes)))
 
-    # Cache bboxes to speed up subsequent runs
-    with open(temp_bboxes, 'w') as f:
-      json.dump(bboxes, f)
+  # Init for multiprocessing
+  manager = Manager()
+  featurestore = manager.list()
+  pkeystore = manager.list()
 
-  # pp(bboxes)
-  print len(bboxes)
-  # exit()
+  # Chunk up the bounding boxes
+  chunk_size = int(ceil(len(bboxes) / float(processes)))
+  if chunk_size < processes:
+    chunk_size = 1
+  chunks = [(
+    ctx, bboxes[i:i+chunk_size], where, table_id,
+    featurestore, pkey, pkeystore
+  ) for i in range(0, len(bboxes), chunk_size)]
 
-  # Nuke any existing cached features
-  if os.path.isfile(temp_features):
-    os.remove(temp_features)
-
-  chunks = [(bboxes[i:i+5], ctx, table_id, temp_features, i) for i in range(0, len(bboxes), 5)]
-
+  # Loot All Of The Things!
   start_time = time.time()
 
-  lock = multiprocessing.Lock()
-  pool = multiprocessing.Pool(processes=3, initializer=initialize_lock, initargs=(lock,))
-  stuff = pool.map(getFeatures, chunks)
+  pool = multiprocessing.Pool(processes=processes)
+  pool.map(getFeatures, chunks)
   pool.close()
   pool.join()
 
   elapsed_secs = time.time() - start_time
-  ctx.log("Done in %ss" % (elapsed_secs))
 
-def getFeatures(blob):
-  global lock
-  # print lock
-  # exit()
-  # print **kwargs
+  features = {
+    "type": "FeatureCollection",
+    "features": [f for sublist in featurestore for f in sublist]
+  }
+  json.dump(features, outfile)
 
+  ctx.log("Got %s features in %smins" % (len(features["features"]), round(elapsed_secs / 60, 2)))
+
+
+def getFeatures(args):
+  """Sub-process to retrieve all of the features for a given chunk of
+    bounding boxes.
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object.
+  bboxes : list
+    A list of lists of bounding boxes to query.
+  table_id : int
+    The GME tableId to query.
+  featurestore : Manager.List()
+    The master Manager().List() object to store retrieved features to.
+  """
   @retries(10, delay=0.25, backoff=0.25)
-  def list(request):
+  def features_list(request):
     return request.execute()
 
-  bboxes, ctx, table_id, temp_features, start_index = blob
-
-  # @TODO Does Python have a pool type thing that we can push used QPS to
-  #         that would reset every second?
-  # @TODO Give up on 'Deadline exceeded'
-  # @TODO Track the number of pages and time elapsed for each resultset
-  # @TODO Track page views consumed
-  # @TODO Make reobtaining tokens work for multi threaded code
-  # @TODO Confirm 'Deadline exceeded' errors by removing threading and asking for lots of features
-  # @TODO Can we measure request wait time vs send time?
-  # @TODO Work out why some valid bboxes are returning no features?
+  ctx, bboxes, where, table_id, featurestore, pkey, pkeystore = args
 
   pid = multiprocessing.current_process().pid
   if pid not in ctx.thread_safe_services:
-    ctx.log("## Get New Service %s ##" % (pid))
+    ctx.log("## pid %s getting a new token... ##" % (pid))
     ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE)
 
   thread_start_time = time.time()
-  for bbox in bboxes:
-    print ""
-    print bbox
-    resource = ctx.thread_safe_services[pid].tables().features()
+  while bboxes:
+    features = []
 
+    bbox = bboxes.pop(0)
+    resource = ctx.thread_safe_services[pid].tables().features()
     request = resource.list(
-                id=table_id, maxResults=1000,
-                # select="gx_id",
-                intersects=box(*bbox)
+      id=table_id, maxResults=1000,
+      intersects=bbox2poly(*bbox),
+      where=where
     )
 
-    requests = 0
+    page_counter = 0
+    resultset_start_time = time.time()
     while request != None:
       try:
-        requests += 1
-        start_time = time.time()
+        page_counter += 1
 
-        # print dir(request)
-        # print bbox
-        response = list(request)
-        # print len(response['features'])
+        request_start_time = time.time()
+        response = features_list(request)
+        request_elapsed_time = time.time() - request_start_time
 
-        lock.acquire()
-        with open(temp_features, 'a') as f:
-          json.dump(response['features'], f)
-        lock.release()
+        # De-dupe returned features
+        cleaned_features = []
+        for f in response['features']:
+          if f['properties'][pkey] not in pkeystore:
+            pkeystore.append(f['properties'][pkey])
+            cleaned_features.append(f)
+        features += cleaned_features
 
         # Obey GME's QPS limits
-        response_time = time.time() - start_time
-        nap_time = max(0, 1.3 - response_time)
-
-        if len(response['features']) == 0:
-          # print "Got no features"
-          print "Got no features for [%s]" % (', '.join(str(v) for v in bbox))
-
-        if nap_time > 0:
-          ctx.log("pid %s retrieved %s features in %ss (%s requests). Napping for %ss." % (pid, len(response['features']), round(response_time, 2), requests, round(nap_time, 2)))
-          # ctx.log("pid %s retrieved %s features in %ss (page=%s). Napping for %ss." % (pid, len(response['features']), round(response_time, 2), requests, round(nap_time, 2)))
-          time.sleep(nap_time)
-        else:
-          ctx.log("pid %s retrieved %s features in %ss (%s requests)" % (pid, len(response['features']), round(response_time, 2), requests))
-          # ctx.log("pid %s retrieved %s features in %ss (page=%s)." % (pid, len(response['features']), round(response_time, 2)), requests)
+        nap_time = max(0, 1 - request_elapsed_time)
+        time.sleep(nap_time)
 
         request = resource.list_next(request, response)
-      except HttpError, err:
+      except BackendError as e:
         # For 'Deadline exceeded' errors
-        ctx.log("Got '%s' for [%s] after %s requests" % (json.loads(err.content)['error']['message'], ', '.join(str(v) for v in bbox), requests))
-        # print request.uri
-        # print bbox
-        # print err.resp.status
-        # print json.loads(err.content)['error']['message']
-        # print json.loads(err.content)['error']['errors'][0]['reason']
-        # print ""
+        ctx.log("Got error '%s' for [%s] after %s pages and %ss. Splitting and trying again." %
+                  (e, ', '.join(str(v) for v in bbox), page_counter, time.time() - resultset_start_time))
         request = None
+        features = []
+        bboxes.extend(bbox2quarters(bbox)) # Split and append to the end
+        break
+    else:
+      # Add features to master store
+      featurestore.append(features)
+      ctx.log("pid %s retrieved %s features from %s pages in %ss" % (pid, len(features), page_counter, round(time.time() - resultset_start_time, 2)))
 
   thread_elapsed_time = time.time() - thread_start_time
-  ctx.log("pid %s finished after %ss" % (pid, round(thread_elapsed_time, 2)))
-  # print "Fin"
-  # print "Fin pid %s\n" % (pid)
+  ctx.log("pid %s finished chunk in %smins" % (pid, round(thread_elapsed_time / 60, 2)))
