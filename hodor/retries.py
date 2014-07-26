@@ -18,14 +18,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
 import sys
 import json
+import multiprocessing
 from time import sleep
+from hodor.exceptions import QueryTooExpensive, BackendError
 from apiclient.errors import HttpError
 from socket import error as socket_error
 from hodor.cli import Context
-
 
 def gme_exc_handler(tries_remaining, exception, delay, args):
     """GME exception handler; retries 403 errors (access token expired) and prints a warning to stderr.
@@ -35,9 +35,6 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
     delay: The length of time we're sleeping for.
     args: A tuple of the arguments passed to the calling function.
     """
-    # for count, thing in enumerate(args):
-      # '{0}. {1}'.format(count, thing)
-
     # By convention Hodor always passed Context as the first argument.
     ctx = args[0]
 
@@ -45,23 +42,37 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
     if isinstance(exception, HttpError):
       if exception.resp.status == 401:
         print "Token Expired, Reauthenticating..."
-        if isinstance(ctx, Context):
+
+        if not isinstance(ctx, Context):
+          raise Exception("Could not find Context.")
+
+        proc = multiprocessing.current_process()
+        if proc.name.startswidth("PoolWorker"):
+          ctx.log("## pid %s getting a new token... ##" % (proc.pid))
+          ctx.thread_safe_services[proc.pid] = ctx.get_authenticated_service(ctx.RW_SCOPE)
+        else:
           ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
+
       elif exception.resp.status in [403, 503]:
       # Allow fatal errors to bubble up - nothing we can do about them here
         content = json.loads(exception.content)
-        if content['error']['errors'][0]['reason'] in ['queryTooExpensive', 'backendError']:
-          raise exception
-      # Retry "server didn't respond in time", GME's random "internal server error", or rate limit exceeded errors
-      elif exception.resp.status not in [500, 503, 403, 410, 429]:
+        if content['error']['errors'][0]['reason'] == 'queryTooExpensive':
+          raise QueryTooExpensive("Query too expensive '%s'" % (content['error']['message']))
+        elif content['error']['errors'][0]['reason'] == 'backendError':
+          raise BackendError("GME backend error '%s'" % (content['error']['message']))
+      # Retry non-fata errors like "server didn't respond in time", GME's random "internal server error", or rate limit exceeded errors
+      elif exception.resp.status not in [500, 410, 429]:
         raise exception
 
     if isinstance(ctx, Context):
       ctx.log("%s, %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay))
     else:
-      message = json.loads(exception.content)['error']['message']
-      message += " " + json.loads(exception.content)['error']['errors'][0]['reason']
-      print >> sys.stderr, "Caught '%s' (%s), %d tries remaining, sleeping for %s seconds" % (message, exception.resp.status, tries_remaining, round(delay, 2))
+      if exception.content is not None:
+        content = json.loads(exception.content)
+        message = content['error']['message'] + " " + content['error']['errors'][0]['reason']
+        print >> sys.stderr, "Caught '%s' (%s), %d tries remaining, sleeping for %s seconds" % (message, exception.resp.status, tries_remaining, round(delay, 2))
+      else:
+        raise exception
 
 
 def example_exc_handler(tries_remaining, exception, delay):
