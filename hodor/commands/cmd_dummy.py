@@ -17,7 +17,7 @@ def cli(ctx):
 def tag_all_rasters(ctx):
   import httplib2
   h = httplib2.Http()
-  request_uri = "https://www.googleapis.com/mapsengine/exp2/rasters?projectId=09372590152434720789&fields=nextPageToken,rasters/id,rasters/tags"
+  request_uri = "https://www.googleapis.com/mapsengine/exp2/rasters?projectId=06151154151057343427&fields=nextPageToken,rasters/id,rasters/tags"
   next_page_token = ""
 
   while next_page_token is not None:
@@ -30,22 +30,18 @@ def tag_all_rasters(ctx):
     )
 
     if response['status'] == "200":
+      # Tag and untag all rasters to trigger GME to switch them to the new ACL system
       content = json.loads(content)
-      if 'nextPageToken' in content:
-        next_page_token = content['nextPageToken']
+      for r in content['rasters']:
+        patch = ctx.service.rasters().patch(id=r['id'], body={
+          "tags": r['tags'] + ["hodor-patch"]
+        }).execute()
+        patch = ctx.service.rasters().patch(id=r['id'], body={
+          "tags": r['tags']
+        }).execute()
+        ctx.log("%s patched OK" % (r['id']))
 
-        # Tag and untag all rasters to trigger GME to switch them to the new ACL system
-        for r in content['rasters']:
-          patch = ctx.service.rasters().patch(id=r['id'], body={
-            "tags": r['tags'] + ["hodor-patch"]
-          }).execute()
-          patch = ctx.service.rasters().patch(id=r['id'], body={
-            "tags": r['tags']
-          }).execute()
-          ctx.log("%s patched OK" % (r['id']))
-
-      else:
-        next_page_token = None
+      next_page_token = content['nextPageToken'] if 'nextPageToken' in content else None
     else:
       raise Exception("Got a non-200 response")
 
