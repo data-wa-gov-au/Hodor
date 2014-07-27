@@ -2,7 +2,7 @@ import click
 import json
 import os
 import time
-
+from pprintpp import pprint as pp
 from os import walk
 from retries import retries
 from hodor.cli import pass_context
@@ -24,9 +24,11 @@ def cli(ctx, chunk_size, asset_processing_wait):
               help="The raster mosaic to add the newly created raster to.")
 @click.option('--process-mosaic/--no-process-mosaic', default=False,
               help="Whether the given raster mosaic should be processed after the raster is added. Defaults to false.")
+@click.option('--layer-id',
+              help="The raster layer to add the newly created layer to.")
 @click.argument('configfile', type=click.File('r'))
 @pass_context
-def raster(ctx, mosaic_id, process_mosaic, configfile):
+def raster(ctx, mosaic_id, process_mosaic, layer_id, configfile):
   """Create a new raster asset in Google Maps Engine"""
   @retries((ctx.processing_timeout_mins * 60) / 10, delay=10, backoff=1)
   def poll_asset_processing(ctx, mosaic_id):
@@ -41,7 +43,7 @@ def raster(ctx, mosaic_id, process_mosaic, configfile):
 
   # Optionally, add it to an existing raster mosaic
   if mosaic_id is not None:
-    ctx.service.rasterCollections().rasters().batchInsert(id=mosaic_id, body={"ids":[asset["id"]]}).execute()
+    ctx.service.rasterCollections().rasters().batchInsert(id=mosaic_id, body={"ids": [asset["id"]]}).execute()
     ctx.log("Asset '%s' added to mosaic '%s'" % (asset["id"], mosaic_id))
 
     if process_mosaic == True:
@@ -57,6 +59,20 @@ def raster(ctx, mosaic_id, process_mosaic, configfile):
       elif response["processingStatus"] == "failed":
         ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
         raise Exception("Asset failed to process")
+
+  # Optionally, add it to an existing layer
+  if layer_id is not None:
+    layer = ctx.service.layers().get(id=layer_id).execute()
+
+    if layer['datasourceType'] != "image":
+      raise Exception("Layer datasourceType is not 'image'.")
+    if len(layer['datasources']) >= 100:
+      raise Exception("The GME API currently only allows us to patch layers <= 100 datasources.")
+
+    ctx.service.layers().patch(id=layer_id, body={
+      "datasources": layer['datasources'] + [asset["id"]]
+    }).execute()
+    ctx.log("Asset '%s' added to layer '%s'" % (asset["id"], layer_id))
 
 
 @cli.command()
