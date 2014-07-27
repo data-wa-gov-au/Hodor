@@ -44,10 +44,13 @@ class Context(object):
         self.CREDENTIALS_SERVICE_ACC = 'oauth-sa.json'
 
     def log(self, msg, *args):
-        """Logs a message to stderr."""
+        """Logs a message to stdout."""
         if args:
             msg %= args
-        click.echo(msg, file=sys.stderr)
+        click.echo(msg, file=sys.stdout)
+
+        if getattr(self, 'logger', None):
+          self.logger.info(msg)
 
     def vlog(self, msg, *args):
         """Logs a message to stderr only if verbose is enabled."""
@@ -115,7 +118,6 @@ class Context(object):
       connection.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
 
       return resource
-
 
     def upload_file(self, file, id, resource):
       # Retry transport and file IO errors.
@@ -204,12 +206,26 @@ class HodorCLI(click.MultiCommand):
 @click.command(cls=HodorCLI, context_settings=CONTEXT_SETTINGS)
 @click.option('-v', '--verbose', is_flag=True, default=False,
               help='Enable verbose mode.')
+@click.option('--log-file', type=click.Path(dir_okay=False, writable=True, resolve_path=True),
+              help='A log file to write output to.')
 @click.option('--auth-type', default='web',
               help='The type of OAuth flow to apply. Defaults to web - may also be "service-account"')
 @pass_context
-def cli(ctx, verbose, auth_type):
+def cli(ctx, verbose, log_file, auth_type):
   """A command line interface for Google Maps Engine."""
+  # Configure logging level
   ctx.verbose = verbose
+
+  # Configure file logging
+  if log_file is not None:
+    ctx.logger = logging.getLogger('Hodor')
+    ctx.logger.setLevel(logging.INFO)
+
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(logging.Formatter('[%(asctime)s] %(message)s'))
+    ctx.logger.addHandler(fh)
+
   ctx.auth_type = auth_type
   ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
   ctx.thread_safe_services = {}

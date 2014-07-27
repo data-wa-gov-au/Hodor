@@ -2,12 +2,15 @@ test-data/
 venv/
 Hodor.egg-info/
 bak/
-credentials-store.json
-*.pyc
-patch.py
 
 oauth.json
 oauth-sa.json
+credentials-store.json
 
 *-features*.json
 temp-*.json
+
+hodor*.log
+
+*.pyc
+patch.py
