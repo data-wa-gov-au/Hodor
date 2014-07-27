@@ -45,7 +45,7 @@ If you find this occurring (a) let me know, and (b) you can setup your own appli
 2. Go to the **APIs & Auth** section and enable the **Google Maps Engine API**
 3. Click on **Credentials** and create a new **Installed Application**
 4. Create `oauth.json` in the directory you have Hodor installed in and include your new clientId and Secret.
-5. Remove the existing ```credentials-store.json``` file.
+5. Remove the existing `credentials-store.json` file.
 
 ```json
 {
@@ -109,11 +109,11 @@ Hodor supports bulk ingest of raster assets based on a single JSON confguration 
 hodor bulk-load raster "test-data/raster_birds/config.json"
 ```
 
-In this mode Hodor will create one new raster asset for every file in your ```payload``` directory. Each asset will be based on the template information provided in ```config.json```, with the name the asset being set to the name of the file.
+In this mode Hodor will create one new raster asset for every file in your `payload` directory. Each asset will be based on the template information provided in ```config.json```, with the name the asset being set to the name of the file.
 
 ### JSON Config Files
 #### config.json
-```config.json``` should contain your asset metadata fields in JSON format as defined by Google Maps Engine.
+`config.json` should contain your asset metadata fields in JSON format as defined by Google Maps Engine.
 
 See the GME API documentation for the minimum required fields for [vector](https://developers.google.com/maps-engine/documentation/table-upload) and [raster](https://developers.google.com/maps-engine/documentation/raster-upload) data.
 
@@ -136,7 +136,7 @@ See the GME API documentation for the minimum required fields for [vector](https
 ```
 
 #### layers.json
-```layers.json``` should contain your layer metadata fields in JSON format as defined by Google Maps Engine.
+`layers.json` should contain your layer metadata fields in JSON format as defined by Google Maps Engine.
 
 See the [layer create documentation](https://developers.google.com/maps-engine/documentation/layer-create) for the minium required fields.
 
@@ -156,7 +156,7 @@ See the [layer create documentation](https://developers.google.com/maps-engine/d
 }
 ```
 
-```layers.json``` supports two optional fields:
+`layers.json` supports two optional fields:
 
 > *styleFile* is an optional parameter that will use the given file as the layer's style document.
 >
@@ -175,7 +175,7 @@ Return all of the features from a vector table:
 hodor features list {table-id} features.json
 ```
 
-Return all of the features from a vector table in a given area and with a ```LOCALITY``` of NANNUP:
+Return all of the features from a vector table in a given area and with a `LOCALITY` of NANNUP:
 ```
 hodor features list -bbox="115.876581, -31.926812, 115.960266, -31.893442" -where="LOCALITY <> 'NANNUP'" {table-id} features.json
 ```
