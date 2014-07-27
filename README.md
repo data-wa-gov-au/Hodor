@@ -44,15 +44,15 @@ If you find this occurring (a) let me know, and (b) you can setup your own appli
 1. Go to the [Google Developers Console](https://cloud.google.com/console/project) and **Create a new project**
 2. Go to the **APIs & Auth** section and enable the **Google Maps Engine API**
 3. Click on **Credentials** and create a new **Installed Application**
-4. Create ```oauth.json``` in the directory you have Hodor installed in and include your new clientId and Secret.
+4. Create `oauth.json` in the directory you have Hodor installed in and include your new clientId and Secret.
+5. Remove the existing ```credentials-store.json``` file.
+
 ```json
 {
   "client_id": "your-client-id",
   "client_secret": "your-client-secret"
 }
 ```
-5. Remove the existing ```credentials-store.json``` file.
-
 
 # Using Hodor
 Hodor knows about:
