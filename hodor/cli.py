@@ -94,7 +94,7 @@ class Context(object):
 
         if credentials is None or credentials.invalid:
           credentials = run_oauth2(flow, credential_storage)
-        elif credentials.access_token_expired is False:
+        elif credentials.access_token_expired is True:
           ctx.log("Refreshing access token!")
           credentials.refresh(httplib2.Http())
 
