@@ -31,22 +31,17 @@ CONTEXT_SETTINGS = dict(auto_envvar_prefix='HODOR')
 class Context(object):
 
     def __init__(self):
-        self.verbose = False
-        self.retry = 5
-        self.home = os.getcwd()
-
-        self.version = "v1"
+        # MapsEngine version to utilise
+        self.version = 'v1'
 
         # Google Maps Engine scopes
         self.RW_SCOPE = 'https://www.googleapis.com/auth/mapsengine'
         self.RO_SCOPE = 'https://www.googleapis.com/auth/mapsengine.readonly'
 
-        # File where the user confiurable OAuth details are stored.
-        self.OAUTH_CONFIG = "oauth.json"
-        self.OAUTH_CONFIG_SERVICE_ACC = "oauth-sa.json"
-
-        # File where we will store authentication credentials after acquiring them.
-        self.CREDENTIALS_FILE = 'credentials-store.json'
+        # File where we will store authentication credentials after acquiring them
+        self.CREDENTIALS_STORE = 'credentials-store.json'
+        self.CREDENTIALS_NATIVE_APP = 'oauth.json'
+        self.CREDENTIALS_SERVICE_ACC = 'oauth-sa.json'
 
     def log(self, msg, *args):
         """Logs a message to stderr."""
@@ -64,7 +59,7 @@ class Context(object):
 
       # Service Account
       if self.auth_type == 'service-account':
-        with open(self.OAUTH_CONFIG_SERVICE_ACC) as f:
+        with open(self.CREDENTIALS_SERVICE_ACC) as f:
           config = json.load(f)
 
         credentials = SignedJwtAssertionCredentials(
@@ -77,8 +72,16 @@ class Context(object):
           raise Exception('Credentials invalid.')
       else:
       # Web Flow
-        with open(self.OAUTH_CONFIG) as f:
-          config = json.load(f)
+        if os.path.isfile(self.CREDENTIALS_NATIVE_APP):
+          with open(self.CREDENTIALS_NATIVE_APP) as f:
+            config = json.load(f)
+        else:
+          # This is OK according to Google
+          # http://stackoverflow.com/questions/7274554/why-google-native-oauth2-flow-require-client-secret
+          config = {
+            "client_id": "75839337166-pc5il9vgrgseopqberqi9pcr4clglcng.apps.googleusercontent.com",
+            "client_secret": "OdkKJCeg_ocgu9XO9JjbGSlv"
+          }
 
         flow = OAuth2WebServerFlow(
           client_id=config['client_id'],
@@ -86,13 +89,14 @@ class Context(object):
           scope=scope,
           user_agent='Landgate-Hodor/1.0')
 
-        credential_storage = CredentialStorage(self.CREDENTIALS_FILE)
+        credential_storage = CredentialStorage(self.CREDENTIALS_STORE)
         credentials = credential_storage.get()
+
         if credentials is None or credentials.invalid:
           credentials = run_oauth2(flow, credential_storage)
-
-        # if credentials.access_token_expired is False:
-            # credentials.refresh(httplib2.Http())
+        elif credentials.access_token_expired is False:
+          ctx.log("Refreshing access token!")
+          credentials.refresh(httplib2.Http())
 
       self.vlog('Constructing Google Maps Engine service...')
       http = credentials.authorize(httplib2.Http())
@@ -197,17 +201,14 @@ class HodorCLI(click.MultiCommand):
 
 
 @click.command(cls=HodorCLI, context_settings=CONTEXT_SETTINGS)
-@click.option('-v', '--verbose', is_flag=True,
+@click.option('-v', '--verbose', is_flag=True, default=False,
               help='Enable verbose mode.')
-@click.option('--retry', default=5,
-              help='Number of times to retry failed requests before giving up.')
 @click.option('--auth-type', default='web',
               help='The type of OAuth flow to apply. Defaults to web - may also be "service-account"')
 @pass_context
-def cli(ctx, verbose, retry, auth_type):
+def cli(ctx, verbose, auth_type):
   """A command line interface for Google Maps Engine."""
   ctx.verbose = verbose
-  ctx.retry = retry
   ctx.auth_type = auth_type
   ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
   ctx.thread_safe_services = {}
