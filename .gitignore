@@ -4,6 +4,7 @@ Hodor.egg-info/
 bak/
 credentials-store.json
 *.pyc
+patch.py
 
 oauth.json
 oauth-sa.json

@@ -13,8 +13,6 @@ from multiprocessing import Manager, Pool
 from retries import retries
 from hodor.cli import pass_context
 
-# @TODO Understand multiprocessing, Pool, and Manager better
-
 @click.group()
 @pass_context
 def cli(ctx):
