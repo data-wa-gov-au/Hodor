@@ -105,9 +105,13 @@ def uploader(ctx, resource, configfile):
 
   # Fetch payload files
   payloaddir = os.path.join(os.path.dirname(configfile.name), "payload")
-  for (dirpath, dirnames, filenames) in walk(payloaddir):
-    config['files'] = [{'filename': i} for i in filenames]
-    break
+  if os.path.isdir(payloaddir):
+    for (dirpath, dirnames, filenames) in walk(payloaddir):
+      config['files'] = [{'filename': i} for i in filenames]
+      break
+  else:
+  # Backwards compatibility for Aaron
+    payloaddir = os.path.dirname(configfile.name)
 
   # Create asset and upload payload files
   response = create_asset(resource, config)
