@@ -7,10 +7,9 @@ A command-line interface for Google Maps Engine.
 Requires Python 2.7 (32bit).
 
 > **Note:** If you receive a *"setuptools pip failed with error code 1"* error whilst setting up your virtualenv you need to downgrade to virtualenv 1.11.2 due to [this](https://github.com/pypa/virtualenv/issues/524) issue.
-
-```
-pip install virtualenv==1.11.2
-```
+> ```
+> pip install virtualenv==1.11.2
+> ```
 
 ## Linux
 ```
