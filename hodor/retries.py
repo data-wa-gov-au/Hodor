@@ -67,7 +67,7 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
     if isinstance(ctx, Context):
       ctx.log("%s, %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay))
     else:
-      if exception.content is not None:
+      if getattr(exception, 'content', None) is not None:
         content = json.loads(exception.content)
         message = content['error']['message'] + " " + content['error']['errors'][0]['reason']
         print >> sys.stderr, "Caught '%s' (%s), %d tries remaining, sleeping for %s seconds" % (message, exception.resp.status, tries_remaining, round(delay, 2))

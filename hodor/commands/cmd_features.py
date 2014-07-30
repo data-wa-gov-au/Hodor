@@ -157,7 +157,7 @@ def list(ctx, where, bbox, debug, table_id, outfile):
 
   # Dump debug information to CSV
   if debug:
-    stats = tablib.Dataset(headers=('response_code', 'date', 'feature_count', 'time_to_first_byte_secs', 'time_to_last_byte_secs', 'request'))
+    stats = tablib.Dataset(headers=('response_code', 'date', 'feature_count', 'time_to_first_byte_secs', 'time_to_last_byte_secs', 'bbox', 'page_num', 'request'))
     for v in debug_store:
       stats.append(v)
     with open(os.path.splitext(outfile.name)[0] + ".csv", "wb") as f:
@@ -237,16 +237,19 @@ def getFeatures(args):
             len(response['features']) if headers['status'] == "200" else 0,
             headers.get('x---stop-time') - request_start_time,
             (request_elapsed_time),
+            ', '.join(str(v) for v in bbox),
+            page_counter,
             request.uri
           ))
 
         # De-dupe returned features
-        cleaned_features = []
-        for f in response['features']:
-          if f['properties'][pkey] not in pkeystore:
-            pkeystore.append(f['properties'][pkey])
-            cleaned_features.append(f)
-        features += cleaned_features
+        # cleaned_features = []
+        # for f in response['features']:
+        #   if f['properties'][pkey] not in pkeystore:
+        #     pkeystore.append(f['properties'][pkey])
+        #     cleaned_features.append(f)
+        # features += cleaned_features
+        features += response['features']
 
         # Obey GME's QPS limits
         nap_time = max(0, 1 - request_elapsed_time)
@@ -255,16 +258,17 @@ def getFeatures(args):
         request = resource.list_next(request, response)
       except BackendError as e:
         # For 'Deadline exceeded' errors
-        ctx.log("Got error '%s' for [%s] after %s pages and %ss. Discarded %s features. Splitting and trying again." %
-                  (e, ', '.join(str(v) for v in bbox), page_counter, time.time() - resultset_start_time, len(features)))
+        ctx.log("pid %s got error '%s' for [%s] after %s pages and %ss. Discarded %s features. Splitting and trying again." %
+                  (pid, e, ', '.join(str(v) for v in bbox), page_counter, time.time() - resultset_start_time, len(features)))
 
         # Remove features from temp stores
-        for f in features:
-          if f['properties'][pkey] in pkeystore:
-            pkeystore.remove(f['properties'][pkey])
+        # for f in features:
+        #   if f['properties'][pkey] in pkeystore:
+        #     pkeystore.remove(f['properties'][pkey])
 
         request = None
         features = []
+        page_counter = 0
         bboxes.extend(bbox2quarters(bbox)) # Split and append to the end
         break
     else:
