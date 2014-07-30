@@ -7,6 +7,7 @@ import json
 import os
 import multiprocessing
 import random
+import tablib
 from math import ceil
 from hodor.exceptions import QueryTooExpensive, BackendError, QPSTooLow
 from multiprocessing import Manager, Pool
@@ -42,10 +43,12 @@ def bbox2quarters(bbox):
               help='An SQL-like query to run alongside the spatial constraint')
 @click.option('-bbox', type=str,
               help='A bounding box describing the area to confine the query to')
+@click.option('--debug/--no-debug', default=False,
+              help='Toggles debugging mode to write a logfile of the raw /features/list URIs to.')
 @click.argument('table-id', type=str)
 @click.argument('outfile', type=click.File(mode='w'))
 @pass_context
-def list(ctx, where, bbox, table_id, outfile):
+def list(ctx, where, bbox, debug, table_id, outfile):
   """Retrieve features from a vector table.
 
   Parameters
@@ -114,7 +117,7 @@ def list(ctx, where, bbox, table_id, outfile):
   # Fetch bounding boxes
   ctx.log("Calculating viable bounding boxes (this can take awhile)...")
   if bbox is not None:
-    bbox = [float(i) for i in bbox.split(", ")]
+    bbox = [float(i) for i in bbox.split(",")]
   else:
     bbox = table['bbox']
   bboxes = get_viable_bboxes(bbox, pkey)
@@ -124,6 +127,7 @@ def list(ctx, where, bbox, table_id, outfile):
   manager = Manager()
   featurestore = manager.list()
   pkeystore = manager.list()
+  debug_store = manager.list()
 
   # Chunk up the bounding boxes
   chunk_size = int(ceil(len(bboxes) / float(processes)))
@@ -131,7 +135,8 @@ def list(ctx, where, bbox, table_id, outfile):
     chunk_size = 1
   chunks = [(
     ctx, bboxes[i:i+chunk_size], where, table_id,
-    featurestore, pkey, pkeystore
+    featurestore, pkey, pkeystore,
+    debug, debug_store
   ) for i in range(0, len(bboxes), chunk_size)]
 
   # Loot All Of The Things!
@@ -150,6 +155,14 @@ def list(ctx, where, bbox, table_id, outfile):
   }
   json.dump(features, outfile)
 
+  # Dump debug information to CSV
+  if debug:
+    stats = tablib.Dataset(headers=('response_code', 'date', 'feature_count', 'time_to_first_byte_secs', 'time_to_last_byte_secs', 'request'))
+    for v in debug_store:
+      stats.append(v)
+    with open(os.path.splitext(outfile.name)[0] + ".csv", "wb") as f:
+      f.write(stats.csv)
+
   ctx.log("Got %s features in %smins" % (len(features["features"]), round(elapsed_secs / 60, 2)))
 
 
@@ -163,16 +176,29 @@ def getFeatures(args):
     A Click Context object.
   bboxes : list
     A list of lists of bounding boxes to query.
+  where : string
+    A string describing GME's SQL-lite querying syntac.
   table_id : int
     The GME tableId to query.
   featurestore : Manager.List()
     The master Manager().List() object to store retrieved features to.
+  pkey : string
+    The name of the primary key column in the data source.
+  pkeystore : Manager.List()
+    The master Manager().List() object to store retrieved pkeys to for de-duping.
+  debug : boolean
+    Toggles debug mode to load httplib2 monkey patching to record request info.
+  debug_store : Manager.List()
+    The master Manager().List() object to store request details to for debugging.
   """
   @retries(10, delay=0.25, backoff=0.25)
   def features_list(request):
     return request.execute()
 
-  ctx, bboxes, where, table_id, featurestore, pkey, pkeystore = args
+  ctx, bboxes, where, table_id, featurestore, pkey, pkeystore, debug, debug_store = args
+
+  if debug:
+    import hodor.httplib2_patch
 
   pid = multiprocessing.current_process().pid
   if pid not in ctx.thread_safe_services:
@@ -198,8 +224,21 @@ def getFeatures(args):
         page_counter += 1
 
         request_start_time = time.time()
-        response = features_list(request)
+        if debug:
+          headers, response = features_list(request)
+        else:
+          response = features_list(request)
         request_elapsed_time = time.time() - request_start_time
+
+        if debug:
+          debug_store.append((
+            headers['status'],
+            headers['date'],
+            len(response['features']) if headers['status'] == "200" else 0,
+            headers.get('x---stop-time') - request_start_time,
+            (request_elapsed_time),
+            request.uri
+          ))
 
         # De-dupe returned features
         cleaned_features = []
@@ -216,8 +255,14 @@ def getFeatures(args):
         request = resource.list_next(request, response)
       except BackendError as e:
         # For 'Deadline exceeded' errors
-        ctx.log("Got error '%s' for [%s] after %s pages and %ss. Splitting and trying again." %
-                  (e, ', '.join(str(v) for v in bbox), page_counter, time.time() - resultset_start_time))
+        ctx.log("Got error '%s' for [%s] after %s pages and %ss. Discarded %s features. Splitting and trying again." %
+                  (e, ', '.join(str(v) for v in bbox), page_counter, time.time() - resultset_start_time, len(features)))
+
+        # Remove features from temp stores
+        for f in features:
+          if f['properties'][pkey] in pkeystore:
+            pkeystore.remove(f['properties'][pkey])
+
         request = None
         features = []
         bboxes.extend(bbox2quarters(bbox)) # Split and append to the end

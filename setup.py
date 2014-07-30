@@ -14,7 +14,8 @@ setup(
         'httplib2',
         'pprintpp',
         'multiprocessing',
-        'shapely'
+        'shapely',
+        'tablib'
     ],
     entry_points='''
         [console_scripts]

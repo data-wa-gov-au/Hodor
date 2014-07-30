@@ -9,6 +9,7 @@ credentials-store.json
 
 *-features*.json
 temp-*.json
+*-features.csv
 
 hodor*.log
 
