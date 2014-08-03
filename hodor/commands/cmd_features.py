@@ -1,15 +1,16 @@
 import click
-from pprintpp import pprint as pp
-from shapely.geometry import box as bbox2poly
-from apiclient.errors import HttpError
 import time
 import json
 import os
 import multiprocessing
 import random
 import tablib
+from pprintpp import pprint as pp
+from shapely.geometry import box as bbox2poly
+from apiclient.errors import HttpError
+from hodor.gme import bbox2quarters, get_viable_bboxes
 from math import ceil
-from hodor.exceptions import QueryTooExpensive, BackendError, QPSTooLow
+from hodor.exceptions import BackendError
 from multiprocessing import Manager, Pool
 from retries import retries
 from hodor.cli import pass_context
@@ -19,262 +20,230 @@ from hodor.cli import pass_context
 def cli(ctx):
   pass
 
-def bbox2quarters(bbox):
-  """Split a BBOX into four equal quarters.
-
-    Parameters
-    ----------
-    bbox : list
-      A bounding box in the traditional order of [minx, miny, maxx, maxy]
-  """
-  delta_x = (bbox[2] - bbox[0]) / 2
-  delta_y = (bbox[3] - bbox[1]) / 2
-
-  return [
-    [bbox[0],           bbox[1],           bbox[0] + delta_x, bbox[1] + delta_y], # SW
-    [bbox[0] + delta_x, bbox[1],           bbox[2],           bbox[1] + delta_y], # SE
-    [bbox[0] + delta_x, bbox[1] + delta_y, bbox[2],           bbox[3]],           # NE
-    [bbox[0],           bbox[1] + delta_y, bbox[0] + delta_x, bbox[3]]            # NW
-  ]
-
 
 @cli.command()
 @click.option('-where', type=str,
-              help='An SQL-like query to run alongside the spatial constraint')
+              help='An SQL-like query to run alongside the spatial constraint.')
 @click.option('-bbox', type=str,
-              help='A bounding box describing the area to confine the query to')
+              help='A bounding box describing the area to confine the query to. If not supplied the whole data set is considered.')
 @click.option('--debug/--no-debug', default=False,
-              help='Toggles debugging mode to write a logfile of the raw /features/list URIs to.')
+              help='Toggles debugging mode to write a logfile of the raw /features/list URIs to. Defaults to not.')
+@click.option('--bbox-cache/--no-bbox-cache', default=True,
+              help='Toggles whether to cache bounding boxes on first run. Defaults to caching.')
+@click.option('--minimum-qps', default=10,
+              help='The minimum QPS (Queries/Second) to attain on queryable areas. Defaults to 10.')
+@click.option('--num-processes', default=10,
+              help='The number of concurrent threads to run whilst querying. Defaults to 10 and is loosely correlated wit --minimum-qps.')
 @click.argument('table-id', type=str)
 @click.argument('outfile', type=click.File(mode='w'))
 @pass_context
-def list(ctx, where, bbox, debug, table_id, outfile):
+def list(ctx, where, bbox, debug, bbox_cache, minimum_qps, num_processes, table_id, outfile):
   """Retrieve features from a vector table.
 
   Parameters
   ----------
   ctx: Context
     A Click Context object.
+  where : string
+    An optional parameter specifying a GME SQL-like querying language for tables.
+  bbox : string
+    An optional parameter specifying the bounding box to query.
+  debug : boolean
+    Controls the debugging that dumps the queries run against GME to a CSV file.
+  bbox_cache : boolean
+    Controls whether we try to read bounding boxes from our local cache.
+  minimum_qps : int
+    The minimum QPS (Queries/Second) to attain on queryable areas.
+  num_processes : int
+    The number of concurrent threads to run whilst querying.
   table_id: int
     The GME vector tableId to query
+  outfile : Click.File
+    A Click.File object to write the features to. Is used as the basis for any other files generated (e.g. debugging)
   """
-
-  def get_viable_bboxes(bbox, pkey):
-    """Calculate the bounding boxes within a given area
-      that it's viable to query given GME's known limits.
-
-    Parameters
-    ----------
-    bbox: list
-      A bounding box in the traditional order of [minx, miny, maxx, maxy]
-    """
-    @retries(10, delay=0.25, backoff=0.25)
-    def features_list(polygon, pkey):
-      request_start_time = time.time()
-      response = ctx.service.tables().features().list(
-                  id=table_id, maxResults=1,
-                  select=pkey,
-                  intersects=polygon
-      ).execute()
-
-      # Obey GME's QPS limits
-      request_elapsed_time = time.time() - request_start_time
-      nap_time = max(0, 1.3 - request_elapsed_time)
-      time.sleep(nap_time)
-
-      return response
-
-    untestedbboxes = bbox2quarters(bbox) # Split the input into at least four separate bounding boxes
-    viablebboxes = []
-    while untestedbboxes:
-      try:
-        bbox = untestedbboxes.pop(0)
-        response = features_list(bbox2poly(*bbox), pkey)
-
-        if response['allowedQueriesPerSecond'] < minrequiredqps:
-          raise QPSTooLow("Query too expensive.")
-
-        if len(response['features']) > 0:
-          viablebboxes.append(bbox)
-          ctx.log("%s viable bounding boxes, %s remaining to test" % (len(viablebboxes), len(untestedbboxes)))
-
-      except (QueryTooExpensive, QPSTooLow) as e:
-        ctx.vlog("%s got error '%s', splitting." % (bbox, e))
-        untestedbboxes.extend(bbox2quarters(bbox))
-
-    # Shuffle to distribute the expensive queries across the threads
-    random.shuffle(viablebboxes)
-    return viablebboxes
-
-  # Init config
-  minrequiredqps = 10
-  processes = 10
 
   # Retrieve the primary key column
   table = ctx.service.tables().get(id=table_id, fields="schema,bbox").execute()
   pkey = table['schema']['primaryKey']
 
   # Fetch bounding boxes
-  ctx.log("Calculating viable bounding boxes (this can take awhile)...")
-  if bbox is not None:
-    bbox = [float(i) for i in bbox.split(",")]
-  else:
+  bboxes = None
+  bbox_cache_file = os.path.splitext(outfile.name)[0] + "-bbox-cache.json"
+
+  if bbox is None:
     bbox = table['bbox']
-  bboxes = get_viable_bboxes(bbox, pkey)
+  else:
+    bbox = [float(i) for i in bbox.split(",")]
+
+  if bbox_cache and os.path.isfile(bbox_cache_file):
+    ctx.log("Retrieving cached bounding boxes...")
+    with open(bbox_cache_file) as f:
+      bbox_cache_json = json.load(f)
+
+    if bbox_cache_json["bbox"] == bbox:
+      bboxes = bbox_cache_json["viable_bboxes"]
+    else:
+      ctx.log("Cache mismatch for %s, skipping cache." % (bbox_cache_file))
+
+  if bboxes is None:
+    ctx.log("Calculating viable bounding boxes (this can take awhile)...")
+    bboxes = get_viable_bboxes(ctx, table_id, minimum_qps, bbox, pkey)
+
+    if bbox_cache:
+      with open(bbox_cache_file, "w") as f:
+        json.dump({
+          "bbox": bbox,
+          "viable_bboxes": bboxes
+        }, f)
   ctx.log("Querying %s bounding boxes..." % (len(bboxes)))
 
   # Init for multiprocessing
   manager = Manager()
-  featurestore = manager.list()
-  pkeystore = manager.list()
+  feature_store = manager.dict()
   debug_store = manager.list()
 
   # Chunk up the bounding boxes
-  chunk_size = int(ceil(len(bboxes) / float(processes)))
-  if chunk_size < processes:
+  chunk_size = int(ceil(len(bboxes) / float(num_processes)))
+  if chunk_size < num_processes:
     chunk_size = 1
   chunks = [(
     ctx, bboxes[i:i+chunk_size], where, table_id,
-    featurestore, pkey, pkeystore,
+    feature_store, pkey,
     debug, debug_store
   ) for i in range(0, len(bboxes), chunk_size)]
 
   # Loot All Of The Things!
   start_time = time.time()
 
-  pool = multiprocessing.Pool(processes=processes)
-  pool.map(getFeatures, chunks)
+  pool = multiprocessing.Pool(processes=num_processes)
+  pool.map(get_features, chunks)
   pool.close()
   pool.join()
 
   elapsed_secs = time.time() - start_time
 
+  # Write features to disk as a GeoJSON blob
+  start = time.time()
   features = {
     "type": "FeatureCollection",
-    "features": [f for sublist in featurestore for f in sublist]
+    "features": [feature_store[key] for key in feature_store.keys()]
   }
+  ctx.log("JSON formatted in %ss" %(round(time.time() - start, 2)))
+  start = time.time()
   json.dump(features, outfile)
+  ctx.log("JSON written in %ss" %(round(time.time() - start, 2)))
 
   # Dump debug information to CSV
   if debug:
     stats = tablib.Dataset(headers=('response_code', 'date', 'feature_count', 'time_to_first_byte_secs', 'time_to_last_byte_secs', 'bbox', 'page_num', 'request'))
     for v in debug_store:
       stats.append(v)
-    with open(os.path.splitext(outfile.name)[0] + ".csv", "wb") as f:
+    with open(os.path.splitext(outfile.name)[0] + "-debug.csv", "w") as f:
       f.write(stats.csv)
 
   ctx.log("Got %s features in %smins" % (len(features["features"]), round(elapsed_secs / 60, 2)))
 
 
-def getFeatures(args):
-  """Sub-process to retrieve all of the features for a given chunk of
-    bounding boxes.
-
-  Parameters
-  ----------
-  ctx : Context
-    A Click Context object.
-  bboxes : list
-    A list of lists of bounding boxes to query.
-  where : string
-    A string describing GME's SQL-lite querying syntac.
-  table_id : int
-    The GME tableId to query.
-  featurestore : Manager.List()
-    The master Manager().List() object to store retrieved features to.
-  pkey : string
-    The name of the primary key column in the data source.
-  pkeystore : Manager.List()
-    The master Manager().List() object to store retrieved pkeys to for de-duping.
-  debug : boolean
-    Toggles debug mode to load httplib2 monkey patching to record request info.
-  debug_store : Manager.List()
-    The master Manager().List() object to store request details to for debugging.
-  """
+def get_features(args):
   @retries(10, delay=0.25, backoff=0.25)
   def features_list(request):
     return request.execute()
 
-  ctx, bboxes, where, table_id, featurestore, pkey, pkeystore, debug, debug_store = args
+  def get(ctx, bboxes, where, table_id, feature_store, pkey, debug, debug_store):
+    """Sub-process to retrieve all of the features for a given chunk of
+      bounding boxes.
 
-  if debug:
-    import hodor.httplib2_patch
+    Parameters
+    ----------
+    ctx : Context
+      A Click Context object.
+    bboxes : list
+      A list of lists of bounding boxes to query.
+    where : string
+      A string describing GME's SQL-lite querying syntac.
+    table_id : int
+      The GME tableId to query.
+    feature_store : Manager.dict()
+      The master Manager().dict() object to store retrieved features to.
+    pkey : string
+      The name of the primary key column in the data source.
+    debug : boolean
+      Toggles debug mode to load httplib2 monkey patching to record request info.
+    debug_store : Manager.list()
+      The master Manager().list() object to store request details to for debugging.
+    """
 
-  pid = multiprocessing.current_process().pid
-  if pid not in ctx.thread_safe_services:
-    ctx.log("## pid %s getting a new token... ##" % (pid))
-    ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE)
+    if debug:
+      import hodor.httplib2_patch
 
-  thread_start_time = time.time()
-  while bboxes:
-    features = []
+    pid = multiprocessing.current_process().pid
+    if pid not in ctx.thread_safe_services:
+      ctx.log("## pid %s getting a new token... ##" % (pid))
+      ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE)
 
-    bbox = bboxes.pop(0)
-    resource = ctx.thread_safe_services[pid].tables().features()
-    request = resource.list(
-      id=table_id, maxResults=1000,
-      intersects=bbox2poly(*bbox),
-      where=where
-    )
+    thread_start_time = time.time()
+    while bboxes:
+      features = []
 
-    page_counter = 0
-    resultset_start_time = time.time()
-    while request != None:
-      try:
-        page_counter += 1
+      bbox = bboxes.pop(0)
+      resource = ctx.thread_safe_services[pid].tables().features()
+      request = resource.list(
+        id=table_id, maxResults=1000,
+        intersects=bbox2poly(*bbox),
+        where=where
+      )
 
-        request_start_time = time.time()
-        if debug:
-          headers, response = features_list(request)
-        else:
-          response = features_list(request)
-        request_elapsed_time = time.time() - request_start_time
+      page_counter = 0
+      resultset_start_time = time.time()
+      while request != None:
+        try:
+          page_counter += 1
 
-        if debug:
-          debug_store.append((
-            headers['status'],
-            headers['date'],
-            len(response['features']) if headers['status'] == "200" else 0,
-            headers.get('x---stop-time') - request_start_time,
-            (request_elapsed_time),
-            ', '.join(str(v) for v in bbox),
-            page_counter,
-            request.uri
-          ))
+          request_start_time = time.time()
+          if debug:
+            headers, response = features_list(request)
+            request_elapsed_time = time.time() - request_start_time
 
-        # De-dupe returned features
-        # cleaned_features = []
-        # for f in response['features']:
-        #   if f['properties'][pkey] not in pkeystore:
-        #     pkeystore.append(f['properties'][pkey])
-        #     cleaned_features.append(f)
-        # features += cleaned_features
-        features += response['features']
+            debug_store.append((
+              headers['status'],
+              headers['date'],
+              len(response['features']) if headers['status'] == "200" else 0,
+              headers.get('x---stop-time') - request_start_time,
+              (request_elapsed_time),
+              ', '.join(str(v) for v in bbox),
+              page_counter,
+              request.uri
+            ))
+          else:
+            response = features_list(request)
+            request_elapsed_time = time.time() - request_start_time
 
-        # Obey GME's QPS limits
-        nap_time = max(0, 1 - request_elapsed_time)
-        time.sleep(nap_time)
+          features += response['features']
 
-        request = resource.list_next(request, response)
-      except BackendError as e:
-        # For 'Deadline exceeded' errors
-        ctx.log("pid %s got error '%s' for [%s] after %s pages and %ss. Discarded %s features. Splitting and trying again." %
-                  (pid, e, ', '.join(str(v) for v in bbox), page_counter, time.time() - resultset_start_time, len(features)))
+          # Obey GME's QPS limits
+          nap_time = max(0, 1 - request_elapsed_time)
+          time.sleep(nap_time)
 
-        # Remove features from temp stores
-        # for f in features:
-        #   if f['properties'][pkey] in pkeystore:
-        #     pkeystore.remove(f['properties'][pkey])
+          request = resource.list_next(request, response)
+        except BackendError as e:
+          # For 'Deadline exceeded' errors
+          ctx.log("pid %s got error '%s' for [%s] after %s pages and %ss. Discarded %s features. Splitting and trying again." %
+                    (pid, e, ', '.join(str(v) for v in bbox), page_counter, time.time() - resultset_start_time, len(features)))
 
-        request = None
-        features = []
-        page_counter = 0
-        bboxes.extend(bbox2quarters(bbox)) # Split and append to the end
-        break
-    else:
-      # Add features to master store
-      featurestore.append(features)
-      ctx.log("pid %s retrieved %s features from %s pages in %ss" % (pid, len(features), page_counter, round(time.time() - resultset_start_time, 2)))
+          request = None
+          features = []
+          page_counter = 0
+          bboxes.extend(bbox2quarters(bbox)) # Split and append to the end
+          break
+      else:
+        # Add new features to the master store
+        for f in features:
+          if f['properties'][pkey] not in feature_store:
+            feature_store[f['properties'][pkey]] = f
 
-  thread_elapsed_time = time.time() - thread_start_time
-  ctx.log("pid %s finished chunk in %smins" % (pid, round(thread_elapsed_time / 60, 2)))
+        ctx.log("pid %s retrieved %s features from %s pages in %ss" % (pid, len(features), page_counter, round(time.time() - resultset_start_time, 2)))
+
+    thread_elapsed_time = time.time() - thread_start_time
+    ctx.log("pid %s finished chunk in %smins" % (pid, round(thread_elapsed_time / 60, 2)))
+
+  get(*args)
