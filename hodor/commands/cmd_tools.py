@@ -74,3 +74,29 @@ Stroke: %s (opacity=%s), width %s""" % (polygonOptions['fill']['color'], round(p
     rules_str += filters2html(rule['filters']) + "\n\n"
 
   outfile.write(rules_str)
+
+
+@cli.command()
+@click.option("-projectId", type=str, help="The GME projectId to query.")
+@click.option("--creator-email", type=str, help="An email address representing the user who created the assets.")
+@click.argument('outfile', type=click.File(mode='w'))
+@pass_context
+def dumprastermosaiclayers(ctx, projectid, creator_email, outfile):
+  resource = ctx.service.layers()
+  request = resource.list(projectId=projectid, creatorEmail=creator_email, fields='layers/id,layers/name,layers/datasourceType')
+  outfile_stats = tablib.Dataset(headers=('id', 'name', 'num_layers'))
+
+  while request != None:
+    response = request.execute()
+
+    for l in response["layers"]:
+      if l["datasourceType"] == "image":
+        layer = resource.get(id=l['id'], fields='datasources').execute()
+        if len(layer['datasources']) > 1:
+          outfile_stats.append([l['id'], l['name'], len(layer['datasources'])])
+
+    request = resource.list_next(request, response)
+
+  outfile_stats = outfile_stats.sort('num_layers', reverse=True)
+  with open(outfile.name, "w") as f:
+    f.write(outfile_stats.csv)

@@ -3,15 +3,8 @@ venv/
 Hodor.egg-info/
 bak/
 
-oauth.json
-oauth-sa.json
-credentials-store.json
-
-*-features*.json
-temp-*.json
-*-features.csv
-
-hodor*.log
-
 *.pyc
+*.json
+*.csv
+hodor*.log
 patch.py
