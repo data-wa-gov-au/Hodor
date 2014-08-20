@@ -165,7 +165,7 @@ class Context(object):
       self.log("Upload completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
     def handle_progressless_iter(self, error, progressless_iters):
-      if progressless_iters > self.retry:
+      if progressless_iters > 5:
         self.log('Failed to make progress for too many consecutive iterations.')
         raise error
 
