@@ -3,35 +3,101 @@ import json
 import os
 import time
 import httplib2
+import re
+from urllib import quote_plus
 from pprintpp import pprint as pp
 from retries import retries
 from hodor.cli import pass_context
 
-@click.group(short_help="Testing faux table replace in GME")
+@click.group(short_help="For performing faux table replace in GME whereby datasources an be updated without altering assetIds.")
 @pass_context
 def cli(ctx):
   pass
 
 
 @cli.command()
-@click.argument('project-id', type=str)
-@click.argument('table-id', type=str)
+# @TOOO Make this click.File afterall. Intention being that AE has a bunch of .bat files at the top level
+# that he points at individual jobfiles and > pipes output to a /logs dir
+@click.argument('jobstore', type=click.Path(exists=True, file_okay=False, resolve_path=True))
 @pass_context
-def create_dummy(ctx, project_id, table_id):
+def runjob(ctx, jobstore):
+  """
+    And on the pedestal these words appear:
+    'My name is Ozymandias, king of kings:
+    Look on my works, ye Mighty, and despair!'
+    Nothing beside remains. Round the decay
+    Of that colossal wreck, boundless and bare
+    The lone and level sands stretch far away.
+      http://en.wikipedia.org/wiki/Ozymandias
+  """
+
+  config = {
+    "projectId": "09372590152434720789",
+    "custodian" : "lgate",
+    "title" : "admin_lga",
+    "dateStamp" : "{Date}"
+    # "partNumber" : "1",
+    # "partCount" : "2"
+  }
+
+  datasource_name_part = config["title"] + "_" + config['custodian']
+  if "partNumber" in config and "partCount" in config:
+    datasource_name_part += "_" + config["partNumber"] + "_of_" + config["partCount"]
+
+  h = httplib2.Http()
+  resp, content = h.request(
+    "https://www.googleapis.com/mapsengine/search_tt/assets?type=table&search=" +\
+        quote_plus((datasource_name_part.replace("_", " "))) + "&projectId=" + config["projectId"], "GET",
+    headers={
+      "Authorization": "Bearer " + ctx.access_token
+    }
+  )
+
+  table = None
+  if resp['status'] != "200":
+    raise Exception("Received status '" + resp['status'] + "' from search. Gave up.")
+  else:
+    valid_tables = []
+    for t in json.loads(content)["assets"]:
+      m = re.search("^(" + datasource_name_part + "_[0-9]{8})$", t["name"])
+      if m and "archive" not in t["tags"] and t["processingStatus"] == "complete":
+        valid_tables.append(t)
+        pp(t)
+
+    if len(valid_tables) != 1:
+      raise Exception("Found " + str(len(valid_tables)) + " matching tables. Gave up - we require a single matching table.")
+    else:
+      table = valid_tables[0]
+
+    # Step 1 - Create an empty placeholder table with the same schema
+    createPlaceholderTable(ctx, table)
+
+
+
+def createPlaceholderTable(ctx, table):
   @retries(10)
-  def create_dummy_table(config):
+  def get_table_schema(table):
+    return ctx.service.tables().get(id=table['id'], fields="schema").execute()["schema"]
+
+  @retries(10)
+  def create_table(config):
+    pp(config)
     return ctx.service.tables().create(body=config).execute()
 
-  table = ctx.service.tables().get(id=table_id, fields="name,schema").execute()
-  dummy_table = create_dummy_table({
-    "projectId": project_id,
-    "name": table["name"] + "_dummy",
+  schema = get_table_schema(table)
+
+  placeholder_table = create_table({
+    "projectId": table["projectId"],
+    "name": table["name"] + "_placeholder",
     "draftAccessList": "Map Editors",
     "schema": {
-      "columns": [v for v in table["schema"]["columns"] if v["name"] != "gx_id"]
+      "columns": [v for v in schema["columns"] if v["name"] != "gx_id"],
+      "primaryKey": schema["primaryKey"] if schema["primaryKey"]  != "gx_id" else None
     }
   })
-  ctx.log("Created empty dummy table " + dummy_table["id"])
+  ctx.log("Created empty placeholder table " + placeholder_table["id"])
+
+
 
 
 @cli.command()
