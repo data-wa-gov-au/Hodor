@@ -22,7 +22,7 @@ import sys
 import json
 import multiprocessing
 from time import sleep
-from hodor.exceptions import QueryTooExpensive, BackendError, TableTooLarge
+from hodor.exceptions import QueryTooExpensive, BackendError, TableTooLarge, InternalServerError
 from apiclient.errors import HttpError
 from socket import error as socket_error
 from hodor.cli import Context
@@ -53,7 +53,7 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
         else:
           ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
 
-      elif exception.resp.status in [403, 503]:
+      elif exception.resp.status in [403, 500, 503]:
       # Allow fatal errors to bubble up - nothing we can do about them here
         content = json.loads(exception.content)
         if content['error']['errors'][0]['reason'] == 'queryTooExpensive':
@@ -62,8 +62,10 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
           raise BackendError("GME backend error '%s'" % (content['error']['message']))
         elif content['error']['errors'][0]['reason'] == 'tableTooLarge':
           raise TableTooLarge("Table too large '%s'" % (content['error']['message']))
+        elif content['error']['errors'][0]['reason'] == 'internalError':
+          raise InternalServerError("%s" % (content['error']['message']))
       # Retry non-fata errors like "server didn't respond in time", GME's random "internal server error", or rate limit exceeded errors
-      elif exception.resp.status not in [500, 410, 429]:
+      elif exception.resp.status not in [410, 429, 500]:
         raise exception
 
     if isinstance(ctx, Context):

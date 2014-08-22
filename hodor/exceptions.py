@@ -9,3 +9,6 @@ class QPSTooLow(Exception):
 
 class TableTooLarge(Exception):
   pass
+
+class InternalServerError(Exception):
+  pass
