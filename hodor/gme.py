@@ -77,3 +77,43 @@ def get_viable_bboxes(ctx, table_id, minrequiredqps, bbox, pkey):
   # Shuffle to distribute the expensive queries across the threads
   random.shuffle(viablebboxes)
   return viablebboxes
+
+
+def getMapLayerIds(map):
+  """Extracts the layerIds from a map's contents block.
+
+  Parameters
+  ----------
+  map : dict
+    A map object returned from /maps/get
+  """
+  def traverse(o):
+    for value in o:
+      if "contents" in value:
+        for subvalue in traverse(value["contents"]):
+          yield subvalue
+
+      elif "type" in value and value["type"] == "layer":
+        yield value["id"]
+
+  return traverse(map["contents"])
+
+
+def getResourceForAsset(resource, type):
+  """Gets the correct base resource for any asset based on its type.
+
+  Parameters
+  ----------
+  resource : apiclient.discovey.Resource
+    A GME API Client discovery resource.
+  type : string
+    A GME asset type, typically returned from a type-agnostic resource (typically /assets/list).
+    Possible values: maps, layers, tables, rasters, rasterCollections.
+  """
+  return {
+    "map": resource.maps(),
+    "layer": resource.layers(),
+    "table": resource.tables(),
+    "raster": resource.rasters(),
+    "rasterCollection": resource.rasterCollections()
+  }[type]
