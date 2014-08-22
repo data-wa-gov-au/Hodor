@@ -31,9 +31,6 @@ CONTEXT_SETTINGS = dict(auto_envvar_prefix='HODOR')
 class Context(object):
 
     def __init__(self):
-        # MapsEngine version to utilise
-        self.version = 'v1'
-
         # Google Maps Engine scopes
         self.RW_SCOPE = 'https://www.googleapis.com/auth/mapsengine'
         self.RO_SCOPE = 'https://www.googleapis.com/auth/mapsengine.readonly'
@@ -57,7 +54,7 @@ class Context(object):
         if self.verbose:
             self.log(msg, *args)
 
-    def get_authenticated_service(self, scope):
+    def get_authenticated_service(self, scope, version):
       self.vlog('Authenticating...')
 
       # Service Account
@@ -101,9 +98,9 @@ class Context(object):
           self.log("Refreshing access token!")
           credentials.refresh(httplib2.Http())
 
-      self.vlog('Constructing Google Maps Engine service...')
+      self.vlog('Constructing Google Maps Engine %s service...' % (version))
       http = credentials.authorize(httplib2.Http())
-      resource = discovery_build('mapsengine', self.version, http=http)
+      resource = discovery_build('mapsengine', version, http=http)
 
       self.log("Access Token: %s" % credentials.access_token)
       self.access_token = credentials.access_token # For handcrafted requests to exp2
@@ -227,5 +224,6 @@ def cli(ctx, verbose, log_file, auth_type):
     ctx.logger.addHandler(fh)
 
   ctx.auth_type = auth_type
-  ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
+  ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
+  ctx.service_exp2 = ctx.get_authenticated_service(ctx.RW_SCOPE, "exp2")
   ctx.thread_safe_services = {}
