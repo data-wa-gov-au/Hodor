@@ -126,8 +126,7 @@ class Context(object):
 
       media = MediaFileUpload(file, chunksize=chunk_size, resumable=True)
       if not media.mimetype():
-        # media = MediaFileUpload(file, 'application/octet-stream', resumable=True)
-        raise Exception("Could not determine mime-type. Please make lib mimetypes aware of it.")
+        media = MediaFileUpload(file, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
       request = resource.files().insert(id=id, filename=os.path.basename(file), media_body=media)
 
       progressless_iters = 0
