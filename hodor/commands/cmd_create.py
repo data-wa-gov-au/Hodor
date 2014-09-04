@@ -107,10 +107,10 @@ def uploader(ctx, resource, configfile):
   payloaddir = os.path.join(os.path.dirname(configfile.name), "payload")
   if os.path.isdir(payloaddir):
     for (dirpath, dirnames, filenames) in walk(payloaddir):
-      config['files'] = [{'filename': i} for i in filenames]
+      config['files'] = [{'filename': f} for f in filenames if f != ".DS_Store"]
       break
   else:
-  # Backwards compatibility for Aaron
+  # Backwards compatibility for Aaron who was supplying the files in the config already
     payloaddir = os.path.dirname(configfile.name)
 
   # Create asset and upload payload files
