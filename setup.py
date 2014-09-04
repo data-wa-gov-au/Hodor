@@ -7,7 +7,7 @@ setup(
     include_package_data=True,
     scripts=['hodor/retries.py'],
     install_requires=[
-        'Click',
+        'Click==2.4',
         'google-api-python-client',
         'python-gflags',
         'pyOpenSSL',
