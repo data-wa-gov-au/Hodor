@@ -177,7 +177,6 @@ def create_vector_layers(ctx, assetId, configfile):
     response = poll_asset_processing(ctx, asset['id'])
     if response["processingStatus"] == "complete":
       ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-      return response
     elif response["processingStatus"] == "failed":
       ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
       raise Exception("Asset failed to process")
