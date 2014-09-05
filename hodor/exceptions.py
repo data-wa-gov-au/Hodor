@@ -1,3 +1,6 @@
+import functools
+import traceback
+
 class QueryTooExpensive(Exception):
   pass
 
@@ -12,3 +15,15 @@ class TableTooLarge(Exception):
 
 class InternalServerError(Exception):
   pass
+
+# For logging exceptions from multithreaded pools
+# http://stackoverflow.com/a/25384934
+def trace_unhandled_exceptions(func):
+    @functools.wraps(func)
+    def wrapped_func(*args, **kwargs):
+        try:
+            func(*args, **kwargs)
+        except:
+            print 'Exception in '+func.__name__
+            traceback.print_exc()
+    return wrapped_func
