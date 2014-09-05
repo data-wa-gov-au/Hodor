@@ -265,6 +265,8 @@ def layer_creator(ctx, asset, configfile):
         infoWindowFile = os.path.join(os.path.dirname(configfile.name), layer["infoWindowFile"])
         if os.path.exists(infoWindowFile):
           with open(infoWindowFile) as f:
+            if "featureInfo" not in layer["style"]:
+              layer["style"]["featureInfo"] = {}
             layer["style"]["featureInfo"]["content"] = f.read()
       del layer["infoWindowFile"]
 
