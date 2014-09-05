@@ -8,7 +8,7 @@ from urllib import quote_plus
 from pprintpp import pprint as pp
 from retries import retries
 from hodor.cli import pass_context
-from hodor.gme import upload_file
+from hodor.gme import upload_file, poll_asset_processing, poll_layer_publishing
 
 @click.group(short_help="For performing faux table replace in GME whereby datasources an be updated without altering assetIds.")
 @pass_context
@@ -156,17 +156,7 @@ def replaceFiles(ctx, table_id, payload_dir):
   payload_dir : str
     The path of the payload directory containing the files.
   """
-
   # @TODO Generic timing code
-  # @TODO Generic polling decerator
-
-  @retries((180 * 60) / 10, delay=10, backoff=1)
-  def poll_asset_processing(ctx, resource, assetId):
-    response = resource.get(id=assetId).execute()
-    if response['processingStatus'] in ['complete', 'failed']:
-      return response
-    else:
-      raise Exception("Table processing status is '%s'" % (response["processingStatus"]))
 
   # Fetch the payload files
   config = {}
@@ -181,13 +171,7 @@ def replaceFiles(ctx, table_id, payload_dir):
   ctx.log("All uploads completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
   # Poll until asset has processed
-  start_time = time.time()
-  response = poll_asset_processing(ctx, ctx.service.tables(), table_id)
-  if response["processingStatus"] == "complete":
-    ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-  elif response["processingStatus"] == "failed":
-    ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-    raise Exception("Table failed to process.")
+  poll_asset_processing(ctx, table_id, ctx.service.tables())
 
 
 @retries(10)
@@ -225,41 +209,11 @@ def reprocessAndRepublishLayers(ctx, layers):
   def publishLayer(ctx, layer_id):
     return ctx.service.layers().publish(id=layer_id).execute()
 
-  @retries(100, delay=10, backoff=1)
-  def poll_asset_processing(ctx, resource, assetId):
-    response = resource.get(id=assetId).execute()
-    if response['processingStatus'] in ['complete', 'failed']:
-      return response
-    else:
-      raise Exception("Layer processing status is '%s'" % (response["processingStatus"]))
-
-  @retries(100, delay=10, backoff=1)
-  def poll_asset_publishing(ctx, resource, assetId):
-    response = resource.get(id=assetId).execute()
-    if response['publishingStatus'] == 'published':
-      return response
-    else:
-      raise Exception("Layer publishing status is '%s'" % (response["publishingStatus"]))
-
-
   for l in layers:
-    processLayer(ctx, l["id"])
     ctx.log("Layer %s processesing begun." % (l["id"]))
+    processLayer(ctx, l["id"])
+    poll_asset_processing(ctx, l["id"], ctx.service.layers())
 
-    # Poll until asset has processed
-    start_time = time.time()
-    response = poll_asset_processing(ctx, ctx.service.layers(), l["id"])
-    if response["processingStatus"] == "complete":
-      ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-
-      publishLayer(ctx, l["id"])
-      ctx.log("Layer %s publishing begun." % (l["id"]))
-
-      # Poll until asset has published
-      start_time = time.time()
-      response = poll_asset_publishing(ctx, ctx.service.layers(), l["id"])
-      ctx.log("Publishing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-
-    elif response["processingStatus"] == "failed":
-      ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-      raise Exception("Layer failed to process")
+    ctx.log("Layer %s publishing begun." % (l["id"]))
+    publishLayer(ctx, l["id"])
+    poll_layer_publishing(ctx, l["id"])

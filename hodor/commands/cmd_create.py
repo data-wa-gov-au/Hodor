@@ -2,11 +2,23 @@ import click
 import json
 import os
 import time
-from hodor.gme import upload_file
+from hodor.gme import upload_file, poll_asset_processing, poll_layer_publishing
 from pprintpp import pprint as pp
 from os import walk
 from retries import retries
 from hodor.cli import pass_context
+
+# @TODO Move uploader() and create_vector_layers() to gme.py
+# @TODO Document all functions according to the NumPy standard
+# @TODO Make the two create entry points accept:
+#   * A single config.json file with a payload directory
+#   * A directory with sub(-sub)-directories containing config.json and payload directories.
+#   * A directory with a single config.json acting as a template for multiple assets (this deprecates the bulk-load functionality)
+# @TODO Implement multithreading processing:
+#   * Using Pool.apply_async()
+#   * Just continue to dump logs to stdout at the moment
+#   * How to handle multithreading uploading?
+#   * We only need ctx's methods - so don't pass, just import?
 
 @click.group(short_help="Create assets in Google Maps Engine")
 # https://google-api-python-client.googlecode.com/hg/docs/epy/apiclient.http.MediaFileUpload-class.html
@@ -26,18 +38,11 @@ def cli(ctx, chunk_size, asset_processing_wait):
 @click.option('--process-mosaic/--no-process-mosaic', default=False,
               help="Whether the given raster mosaic should be processed after the raster is added. Defaults to false.")
 @click.option('--layer-id',
-              help="The raster layer to add the newly created layer to.")
+              help="The raster layer to add the newly created layer to. Not compatible with mosaic options.")
 @click.argument('configfile', type=click.File('r'))
 @pass_context
 def raster(ctx, mosaic_id, process_mosaic, layer_id, configfile):
   """Create a new raster asset in Google Maps Engine"""
-  @retries((ctx.processing_timeout_mins * 60) / 10, delay=10, backoff=1)
-  def poll_asset_processing(ctx, mosaic_id):
-    response = ctx.service.rasterCollections().get(id=mosaic_id).execute()
-    if response['processingStatus'] in ['complete', 'failed']:
-      return response
-    else:
-      raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
 
   # Create new raster asset
   asset = uploader(ctx, "raster", ctx.service.rasters(), configfile)
@@ -52,23 +57,16 @@ def raster(ctx, mosaic_id, process_mosaic, layer_id, configfile):
       ctx.log("Mosaic '%s' processing started" % (mosaic_id))
 
       # Poll until asset has processed
-      start_time = time.time()
-      response = poll_asset_processing(ctx, mosaic_id)
-      if response["processingStatus"] == "complete":
-        ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-        return response
-      elif response["processingStatus"] == "failed":
-        ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-        raise Exception("Asset failed to process")
+      poll_asset_processing(ctx, mosaic_id, ctx.service.rasterCollections())
 
   # Optionally, add it to an existing layer
-  if layer_id is not None:
+  elif layer_id is not None:
     layer = ctx.service.layers().get(id=layer_id).execute()
 
     if layer['datasourceType'] != "image":
       raise Exception("Layer datasourceType is not 'image'.")
     if len(layer['datasources']) >= 100:
-      raise Exception("The GME API currently only allows us to patch layers <= 100 datasources.")
+      raise Exception("The GME API currently only allows us to patch layers <= 100 datasources. Sad Keanu :(")
 
     ctx.service.layers().patch(id=layer_id, body={
       "datasources": layer['datasources'] + [asset["id"]]
@@ -94,14 +92,6 @@ def uploader(ctx, asset_type, resource, configfile):
   def create_asset(resource, config):
     return resource.upload(body=config).execute()
 
-  @retries((ctx.processing_timeout_mins * 60) / 10, delay=10, backoff=1)
-  def poll_asset_processing(ctx, resource, assetId):
-    response = resource.get(id=assetId).execute()
-    if response['processingStatus'] in ['complete', 'failed']:
-      return response
-    else:
-      raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
-
   config = json.load(configfile)
 
   # Fetch payload files
@@ -125,28 +115,13 @@ def uploader(ctx, asset_type, resource, configfile):
   ctx.log("All uploads completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
   # Poll until asset has processed
-  start_time = time.time()
-  response = poll_asset_processing(ctx, resource, response['id'])
-  if response["processingStatus"] == "complete":
-    ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-    return response
-  elif response["processingStatus"] == "failed":
-    ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-    raise Exception("Asset failed to process")
+  return poll_asset_processing(ctx, response['id'], resource)
 
 
 def create_vector_layers(ctx, assetId, configfile):
   @retries(10)
   def create_layer(ctx, config):
     return ctx.service.layers().create(body=config, process=True).execute()
-
-  @retries((ctx.processing_timeout_mins * 60) / 10, delay=10, backoff=1)
-  def poll_asset_processing(ctx, assetId):
-    response = ctx.service.layers().get(id=assetId).execute()
-    if response['processingStatus'] in ['complete', 'failed']:
-      return response
-    else:
-      raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
 
   config = json.load(configfile)
 
@@ -170,14 +145,9 @@ def create_vector_layers(ctx, assetId, configfile):
     # Create layer
     layer["projectId"] = config["projectId"]
     layer["datasources"] = [{"id": assetId}]
+
     asset = create_layer(ctx, layer)
     ctx.log("Layer '%s' created with id %s" % (asset['name'], asset['id']))
 
     # Poll until asset has processed
-    start_time = time.time()
-    response = poll_asset_processing(ctx, asset['id'])
-    if response["processingStatus"] == "complete":
-      ctx.log("Processing complete and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-    elif response["processingStatus"] == "failed":
-      ctx.vlog("Processing failed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-      raise Exception("Asset failed to process")
+    poll_asset_processing(ctx, asset['id'], ctx.service.layers())

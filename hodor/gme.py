@@ -52,6 +52,70 @@ def upload_file(ctx, asset_id, asset_type, filepath, chunk_size=-1):
   ctx.log("Finished uploading %s (%s mins)" % (os.path.basename(filepath), round((time.time() - start_time) / 60, 2)))
 
 
+def poll_asset_processing(ctx, asset_id, resource):
+  """Poll a given asset until its processing stage has completed.
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object.
+  asset_id : str
+    The Id of a valid raster or vector asset.
+  resource : apiclient.discovey.Resource
+    A GME API Client discovery resource.
+
+  Returns
+  -------
+  dict
+    A dictionary representing the asset in GME.
+  """
+  @retries((180 * 60) / 10, delay=10, backoff=1)
+  def poll(ctx, resource, asset_id):
+    response = resource.get(id=asset_id).execute()
+    if response['processingStatus'] in ['complete', 'failed']:
+      return response
+    else:
+      raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
+
+  start_time = time.time()
+  response = poll(ctx, resource, asset_id)
+  if response["processingStatus"] == "complete":
+    ctx.log("Processing complete (%s mins)" % (round((time.time() - start_time) / 60, 2)))
+    return response
+  elif response["processingStatus"] == "failed":
+    ctx.vlog("Processing failed (%s mins)" % (round((time.time() - start_time) / 60, 2)))
+  raise Exception("Asset failed to process.")
+
+
+def poll_layer_publishing(ctx, asset_id):
+  """Poll a given layer until its publishing stage has completed.
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object.
+  asset_id : str
+    The Id of a valid raster or vector asset.
+
+  Returns
+  -------
+  dict
+    A dictionary representing the layer in GME.
+  """
+  @retries((180 * 60) / 10, delay=10, backoff=1)
+  def poll(ctx, asset_id):
+    response = ctx.service.layers().get(id=asset_id).execute()
+    if response['publishingStatus'] == 'published':
+      return response
+    else:
+      raise Exception("Layer publishing status is '%s'" % (response["publishingStatus"]))
+
+  start_time = time.time()
+  response = poll(ctx, asset_id)
+  ctx.log("Publishing complete (%s mins)" % (round((time.time() - start_time) / 60, 2)))
+  return response
+
+
 def bbox2quarters(bbox):
   """Split a BBOX into four equal quarters.
 
