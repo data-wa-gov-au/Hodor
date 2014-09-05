@@ -57,53 +57,52 @@ class Context(object):
     def get_authenticated_service(self, scope, version):
       self.vlog('Authenticating...')
 
-      # Service Account
-      if self.auth_type == 'service-account':
-        with open(self.CREDENTIALS_SERVICE_ACC) as f:
-          config = json.load(f)
+      credential_storage = CredentialStorage(self.CREDENTIALS_STORE)
+      credentials = credential_storage.get()
 
-        credentials = SignedJwtAssertionCredentials(
-          service_account_name=config['client_email'],
-          private_key=config['private_key'],
-          scope=self.RW_SCOPE
-        )
-
-        if credentials is None or credentials.invalid:
-          raise Exception('Credentials invalid.')
-      else:
-      # Web Flow
-        if os.path.isfile(self.CREDENTIALS_NATIVE_APP):
-          with open(self.CREDENTIALS_NATIVE_APP) as f:
+      if credentials is None or credentials.invalid:
+        # Service Account
+        if self.auth_type == 'service-account':
+          with open(self.CREDENTIALS_SERVICE_ACC) as f:
             config = json.load(f)
+
+          credentials = SignedJwtAssertionCredentials(
+            service_account_name=config['client_email'],
+            private_key=config['private_key'],
+            scope=self.RW_SCOPE
+          )
         else:
-          # This is OK according to Google
-          # http://stackoverflow.com/questions/7274554/why-google-native-oauth2-flow-require-client-secret
-          config = {
-            "client_id": "75839337166-pc5il9vgrgseopqberqi9pcr4clglcng.apps.googleusercontent.com",
-            "client_secret": "OdkKJCeg_ocgu9XO9JjbGSlv"
-          }
+        # Web Flow
+          if os.path.isfile(self.CREDENTIALS_NATIVE_APP):
+            with open(self.CREDENTIALS_NATIVE_APP) as f:
+              config = json.load(f)
+          else:
+            # This is OK according to Google
+            # http://stackoverflow.com/questions/7274554/why-google-native-oauth2-flow-require-client-secret
+            config = {
+              "client_id": "75839337166-pc5il9vgrgseopqberqi9pcr4clglcng.apps.googleusercontent.com",
+              "client_secret": "OdkKJCeg_ocgu9XO9JjbGSlv"
+            }
 
-        flow = OAuth2WebServerFlow(
-          client_id=config['client_id'],
-          client_secret=config['client_secret'],
-          scope=scope,
-          user_agent='Landgate-Hodor/1.0')
-
-        credential_storage = CredentialStorage(self.CREDENTIALS_STORE)
-        credentials = credential_storage.get()
-
-        if credentials is None or credentials.invalid:
+          flow = OAuth2WebServerFlow(
+            client_id=config['client_id'],
+            client_secret=config['client_secret'],
+            scope=scope,
+            user_agent='Landgate-Hodor/1.0')
           credentials = run_oauth2(flow, credential_storage)
-        elif credentials.access_token_expired is True:
-          self.log("Refreshing access token!")
-          credentials.refresh(httplib2.Http())
+
+      if credentials is None or credentials.invalid:
+        raise Exception("Unable to obtain valid credentials.")
+      elif credentials.access_token_expired is True:
+        self.vlog("Refreshing access token!")
+        credentials.refresh(httplib2.Http())
+
+      self.vlog("Access Token: %s" % credentials.access_token)
+      self.access_token = credentials.access_token
 
       self.vlog('Constructing Google Maps Engine %s service...' % (version))
       http = credentials.authorize(httplib2.Http())
       resource = discovery_build('mapsengine', version, http=http)
-
-      self.log("Access Token: %s" % credentials.access_token)
-      self.access_token = credentials.access_token # For handcrafted requests to exp2
 
       # Fix for the default TCP send buffer being so riciculosuly low on Windows (8192)
       # These lines of code represent two days of work by multiple people.
