@@ -14,6 +14,7 @@ from hodor.exceptions import BackendError
 from multiprocessing import Manager, Pool
 from retries import retries
 from hodor.cli import pass_context
+from hodor.gme import obey_qps
 
 @click.group()
 @pass_context
@@ -109,7 +110,8 @@ def list(ctx, where, bbox, debug, bbox_cache, minimum_qps, num_processes, table_
   chunks = [(
     ctx, bboxes[i:i+chunk_size], where, table_id,
     feature_store, pkey,
-    debug, debug_store
+    debug, debug_store,
+    minimum_qps, num_processes / minimum_qps
   ) for i in range(0, len(bboxes), chunk_size)]
 
   # Loot All Of The Things!
@@ -145,11 +147,7 @@ def list(ctx, where, bbox, debug, bbox_cache, minimum_qps, num_processes, table_
 
 
 def get_features(args):
-  @retries(10, delay=0.25, backoff=0.25)
-  def features_list(request):
-    return request.execute()
-
-  def get(ctx, bboxes, where, table_id, feature_store, pkey, debug, debug_store):
+  def get_all_features(ctx, bboxes, where, table_id, feature_store, pkey, debug, debug_store, qps, qps_share):
     """Sub-process to retrieve all of the features for a given chunk of
       bounding boxes.
 
@@ -171,7 +169,30 @@ def get_features(args):
       Toggles debug mode to load httplib2 monkey patching to record request info.
     debug_store : Manager.list()
       The master Manager().list() object to store request details to for debugging.
+    qps : int
+      The allowed QPS. Refer to hodor.gme.obey_qps().
+    qps_share : int
+      Each thread's share of the QPS. Refer to hodor.gme.obey_qps().
     """
+    @obey_qps(qps=qps, share=qps_share)
+    @retries(10, delay=0.25, backoff=0.25)
+    def features_list(request, debug_store=None):
+      if debug:
+        headers, response = request.execute()
+
+        debug_store.append((
+          headers['status'],
+          headers['date'],
+          len(response['features']) if headers['status'] == "200" else 0,
+          headers.get('x---stop-time') - request_start_time,
+          (request_elapsed_time),
+          ', '.join(str(v) for v in bbox),
+          page_counter,
+          request.uri
+        ))
+      else:
+        response = request.execute()
+      return response
 
     if debug:
       import hodor.httplib2_patch
@@ -179,7 +200,7 @@ def get_features(args):
     pid = multiprocessing.current_process().pid
     if pid not in ctx.thread_safe_services:
       ctx.log("## pid %s getting a new token... ##" % (pid))
-      ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE)
+      ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
 
     thread_start_time = time.time()
     while bboxes:
@@ -199,30 +220,11 @@ def get_features(args):
         try:
           page_counter += 1
 
-          request_start_time = time.time()
           if debug:
-            headers, response = features_list(request)
-            request_elapsed_time = time.time() - request_start_time
-
-            debug_store.append((
-              headers['status'],
-              headers['date'],
-              len(response['features']) if headers['status'] == "200" else 0,
-              headers.get('x---stop-time') - request_start_time,
-              (request_elapsed_time),
-              ', '.join(str(v) for v in bbox),
-              page_counter,
-              request.uri
-            ))
+            response = features_list(request, debug_store)
           else:
             response = features_list(request)
-            request_elapsed_time = time.time() - request_start_time
-
           features += response['features']
-
-          # Obey GME's QPS limits
-          nap_time = max(0, 1 - request_elapsed_time)
-          time.sleep(nap_time)
 
           request = resource.list_next(request, response)
         except BackendError as e:
@@ -246,4 +248,4 @@ def get_features(args):
     thread_elapsed_time = time.time() - thread_start_time
     ctx.log("pid %s finished chunk in %smins" % (pid, round(thread_elapsed_time / 60, 2)))
 
-  get(*args)
+  get_all_features(*args)

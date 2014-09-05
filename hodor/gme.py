@@ -6,7 +6,6 @@ from hodor.exceptions import *
 from shapely.geometry import box as bbox2poly
 from apiclient.http import MediaFileUpload
 
-
 def upload_file(ctx, asset_id, asset_type, filepath, chunk_size=-1):
   """Upload a given file to an asset.
 
@@ -152,21 +151,15 @@ def get_viable_bboxes(ctx, table_id, minrequiredqps, bbox, pkey):
   pkey : string
     The primary key of the table being queried.
   """
+  @obey_qps()
   @retries(10, delay=0.25, backoff=0.25)
   def features_list(polygon, pkey):
     request_start_time = time.time()
-    response = ctx.service.tables().features().list(
+    return ctx.service.tables().features().list(
                 id=table_id, maxResults=1,
                 select=pkey,
                 intersects=polygon
     ).execute()
-
-    # Obey GME's QPS limits
-    request_elapsed_time = time.time() - request_start_time
-    nap_time = max(0, 1.3 - request_elapsed_time)
-    time.sleep(nap_time)
-
-    return response
 
   untestedbboxes = bbox2quarters(bbox) # Split the input into at least four separate bounding boxes
   viablebboxes = []
@@ -229,3 +222,30 @@ def getResourceForAsset(resource, type):
     "raster": resource.rasters(),
     "rasterCollection": resource.rasterCollections()
   }[type]
+
+
+def obey_qps(qps=1, share=1):
+  """
+  Function decorator for obeying GME's Queries/Second threshold.
+
+  Defaults are set as per GME's limits for free accounts. https://developers.google.com/maps-engine/documentation/limits#free_accounts
+
+  Parameters
+  ----------
+  qps : int
+    The number of queries/second you are permitted to issue for the requests in question. Defaults to 1.
+  share : int
+    Your share of the qps as a value between 0 and 1. Only relevant if you have other users/threads consuming your qps pool.
+  """
+
+  def dec(func):
+    def dec2(*args, **kwargs):
+      start_time = time.time()
+      response = func(*args, **kwargs)
+      elapsed_time = time.time() - start_time
+
+      if elapsed_time < (1 / (qps * share)):
+        time.sleep((1 / (qps * share) - elapsed_time))
+      return response
+    return dec2
+  return dec

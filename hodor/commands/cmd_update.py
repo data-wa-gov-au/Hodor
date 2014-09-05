@@ -5,6 +5,7 @@ import time
 import multiprocessing
 from retries import retries
 from hodor.cli import pass_context
+from hodor.gme import obey_qps
 
 # @TODO Work out why it gets new services so often in the threads. Are threads dying? Am I understanding how ctx is being transferred to the threads?
 # @TODO Sent request timings back to the parent process to calculate percentiles
@@ -48,6 +49,7 @@ def batchRequests(ctx, table_id, processes, payloaddir, operation):
 
 
 def batchRequestsThread(blob):
+  @obey_qps()
   @retries(10, delay=0.25, backoff=0.25)
   def request(resource, table_id, chunk):
     resource(id=table_id, body={"features": chunk}).execute()
@@ -57,7 +59,7 @@ def batchRequestsThread(blob):
   pid = multiprocessing.current_process().pid
   if pid not in ctx.thread_safe_services:
     ctx.log("## Get New Service %s ##" % (pid))
-    ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE)
+    ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
 
   # Make features GME-safe
   for f in chunk:
@@ -72,13 +74,7 @@ def batchRequestsThread(blob):
   start_time = time.time()
 
   batchOperation = getattr(ctx.thread_safe_services[pid].tables().features(), operation)
-  request(batchOperation, table_id, chunk)
 
-  # Obey GME's QPS limits
-  response_time = time.time() - start_time
-  nap_time = max(0, 1.1 - response_time)
-  if nap_time > 0:
-    ctx.log("Processed Features %s - %s in %ss. Napping for %ss." % (start_index, start_index + 50, round(response_time, 2), round(nap_time, 2)))
-    time.sleep(nap_time)
-  else:
-    ctx.log("Processed Features %s - %s in %ss." % (start_index, start_index + 50, round(response_time, 2)))
+  start_time = time.time()
+  request(batchOperation, table_id, chunk)
+  ctx.log("Processed Features %s - %s in %ss." % (start_index, start_index + 50, round(time.time() - start_time, 2)))
