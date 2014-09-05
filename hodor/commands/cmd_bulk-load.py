@@ -5,6 +5,7 @@ import time
 from pprintpp import pprint as pp
 from retries import retries
 from hodor.cli import pass_context
+from hodor.gme import upload_file
 
 @click.group(short_help="Utilities for bulk ingesting data.")
 @pass_context
@@ -34,4 +35,4 @@ def raster(ctx, configfile):
 
       # Upload payload file
       start_time = time.time()
-      ctx.upload_file(os.path.join(payloaddir, filename), response['id'], ctx.service.rasters())
+      upload_file(ctx, response['id'], "raster", os.path.join(payloaddir, filename))

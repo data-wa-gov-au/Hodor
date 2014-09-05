@@ -28,6 +28,10 @@ from apiclient.http import MediaFileUpload
 
 CONTEXT_SETTINGS = dict(auto_envvar_prefix='HODOR')
 
+# No handlers could be found for logger "oauth2client.util"
+# import logging
+# logging.basicConfig(filename='debug.log',level=logging.DEBUG)
+
 class Context(object):
 
     def __init__(self):
@@ -114,61 +118,6 @@ class Context(object):
       connection.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
 
       return resource
-
-    def upload_file(self, file, id, resource):
-      # Retry transport and file IO errors.
-      RETRYABLE_ERRORS = (httplib2.HttpLib2Error, IOError)
-      chunk_size = chunk_size = getattr(self, 'chunk_size', -1)
-
-      self.log("Uploading file '%s'" % (file))
-      start_time = time.time()
-
-      media = MediaFileUpload(file, chunksize=chunk_size, resumable=True)
-      if not media.mimetype():
-        media = MediaFileUpload(file, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
-      request = resource.files().insert(id=id, filename=os.path.basename(file), media_body=media)
-
-      progressless_iters = 0
-      response = None
-      while response is None:
-        error = None
-        try:
-          start_time_chunk = time.time()
-          progress, response = request.next_chunk()
-          if progress:
-            Mbps = ((chunk_size / (time.time() - start_time_chunk)) * 0.008 * 0.001)
-            print "%s%% (%s/Mbps)" % (round(progress.progress() * 100), round(Mbps, 2))
-        except HttpError, err:
-          # Contray to the documentation GME does't return 201/200 for the last chunk
-          if err.resp.status == 204:
-            response = ""
-          else:
-            error = err
-            if err.resp.status < 500 and err.resp.status != 410:
-              raise
-        except RETRYABLE_ERRORS, err:
-          error = err
-
-        if error:
-          progressless_iters += 1
-          self.handle_progressless_iter(error, progressless_iters)
-        else:
-          progressless_iters = 0
-
-      if 'pbar' in locals():
-        del pbar
-      self.log("Upload completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
-
-    def handle_progressless_iter(self, error, progressless_iters):
-      if progressless_iters > 5:
-        self.log('Failed to make progress for too many consecutive iterations.')
-        raise error
-
-      sleeptime = random.random() * (2**progressless_iters)
-      self.log('Caught exception (%s). Sleeping for %s seconds before retry #%d.'
-             % (str(error), sleeptime, progressless_iters))
-      time.sleep(sleeptime)
-
 
 pass_context = click.make_pass_decorator(Context, ensure=True)
 cmd_folder = os.path.abspath(os.path.join(os.path.dirname(__file__),

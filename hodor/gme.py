@@ -1,8 +1,56 @@
 import time
 import random
+import os
 from retries import retries
-from hodor.exceptions import QueryTooExpensive, BackendError, QPSTooLow
+from hodor.exceptions import *
 from shapely.geometry import box as bbox2poly
+from apiclient.http import MediaFileUpload
+
+
+def upload_file(ctx, asset_id, asset_type, filepath, chunk_size=-1):
+  """Upload a given file to an asset.
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object.
+  asset_id : str
+    The Id of a valid raster or vector asset.
+  asset_type : str
+    The type of asset being represented. Possible values: table, raster
+  filepath : str
+    The absolute path to the file.
+  chunk_size : int
+    The size of each upload chunk (must be a multiple of 256KB). Defaults to -1 (native Python streaming)
+  """
+  @retries(5)
+  def next_chunk(ctx, request):
+    return request.next_chunk()
+
+  ctx.log("Begun uploading %s" % (os.path.basename(filepath)))
+  start_time = time.time()
+
+  media = MediaFileUpload(filepath, chunksize=chunk_size, resumable=True)
+  if not media.mimetype():
+    media = MediaFileUpload(filepath, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
+
+  resource = ctx.service.tables() if asset_type == "vector" else ctx.service.rasters()
+  request = resource.files().insert(id=asset_id, filename=os.path.basename(filepath), media_body=media)
+  response = None
+  while response is None:
+    try:
+      start_time_chunk = time.time()
+      progress, response = next_chunk(ctx, request)
+      # Dodgy math is dodgy
+      if progress:
+        Mbps = ((chunk_size / (time.time() - start_time_chunk)) * 0.008 * 0.001)
+        ctx.log("%s%% (%s/Mbps)" % (round(progress.progress() * 100), round(Mbps, 2)))
+    except NoContent as e:
+      # Files uploads return a 204 No Content "error" that actually means it's finished successfully.
+      response = ""
+
+  ctx.log("Finished uploading %s (%s mins)" % (os.path.basename(filepath), round((time.time() - start_time) / 60, 2)))
+
 
 def bbox2quarters(bbox):
   """Split a BBOX into four equal quarters.

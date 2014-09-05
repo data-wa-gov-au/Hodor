@@ -8,6 +8,7 @@ from urllib import quote_plus
 from pprintpp import pprint as pp
 from retries import retries
 from hodor.cli import pass_context
+from hodor.gme import upload_file
 
 @click.group(short_help="For performing faux table replace in GME whereby datasources an be updated without altering assetIds.")
 @pass_context
@@ -176,7 +177,7 @@ def replaceFiles(ctx, table_id, payload_dir):
   # Upload the payload files
   start_time = time.time()
   for i in config['files']:
-    ctx.upload_file(os.path.join(payload_dir, i['filename']), table_id, ctx.service.tables())
+    upload_file(ctx, table_id, "vector", os.path.join(payload_dir, i['filename']))
   ctx.log("All uploads completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
   # Poll until asset has processed
