@@ -16,6 +16,9 @@ class TableTooLarge(Exception):
 class InternalServerError(Exception):
   pass
 
+class NoContent(Exception):
+  pass
+
 # For logging exceptions from multithreaded pools
 # http://stackoverflow.com/a/25384934
 def trace_unhandled_exceptions(func):
