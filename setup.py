@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='Hodor',
-    version='0.2',
+    version='0.3',
     packages=['hodor', 'hodor.commands'],
     include_package_data=True,
     scripts=['hodor/retries.py'],

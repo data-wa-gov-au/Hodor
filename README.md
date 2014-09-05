@@ -57,10 +57,12 @@ If you find this occurring (a) let me know, and (b) you can setup your own appli
 # Using Hodor
 Hodor knows about:
 
-- Uploading and creating raster and vector assets, and adding them to layers and raster collections.
-- Bulk ingest of raster assets.
-- Querying vector tables.
+- Uploading and creating raster and vector assets en masse, and adding or creating layers and raster collections from them.
+- Querying vector tables to retrieve features (multi-threaded).
+- Faux Table Replace by which an existing vector table can have its data replaced with a new set of files.
 - Modifying the contents of vector tables (WIP).
+- Updating record-level vector data (WIP).
+- A range of random tools for doing things with GME.
 
 To work out what capabilities a certain Hodor command has simply pass ``--help`` on the end of the command.
 
@@ -77,39 +79,64 @@ venv/Scripts/activate.bat
 ```
 
 ## Creating Raster & Vector Assets
-Hodor can upload raster and vector data to create new assets and, optionally, directly create new layers or append to an existing raster collection or layer.
+Hodor can upload raster and vector data to create new assets and, optionally, then directly create new layers or append them to an existing raster mosaic or layer.
 
+You can pass Hodor three types of configstore:
 
-Upload a new raster image:
-```
-hodor create raster "test-data/Alkimos 1963/config.json"
-```
+1. A `config.json` file representing a single asset.
+2. A `config.json` file representing multiple assets (bulk loading).
+3. A path containing multiple directories, each with `config.json` files, representing single or multiple assets.
 
-Upload a new vector table and create a layer from it:
-```
-hodor create vector --layer-configfile=test-data/daa_003_subet/layers.json "test-data/daa_003_subet/config.json"
-```
+Hodor's recommended directory structure:
 
-Upload a new raster image and add it to an existing raster mosaic:
-```
-hodor create raster --mosaic-id={asset-id} "test-data/Alkimos 1963/config.json"
-```
-
-Recommended directory structure:
-
-    agency-name/        -- Name of the custodian agency (e.g. Landgate)
-      asset-name/       -- Name of the dataset (e.g. lgate_cadastre_poly_1)
+    org-name/        -- Name of the your organisation (e.g. Landgate)
+      asset-name-1/       -- Name of the dataset (e.g. lgate_cadastre_poly_1)
         config.json     -- Store your asset metadata here
+        layers.json     -- Store layer metadata here (optional)
         payload/        -- Store your data here (e.g. Shapefiles, JPEG2000)
+      asset-name-2/
+        ...
 
-### Bulk Ingest
-Hodor supports bulk ingest of raster assets based on a single JSON confguration file.
+**For example:**
 
+Upload one or more raster assets:
 ```
-hodor bulk-load raster "test-data/raster_birds/config.json"
+hodor create raster "data/org-name/asset-name-1/config.json"
 ```
 
-In this mode Hodor will create one new raster asset for every file in your `payload` directory. Each asset will be based on the template information provided in ```config.json```, with the name the asset being set to the name of the file.
+Upload multiple vector assets:
+```
+hodor create vector "data/org-name/"
+```
+
+Upload a new raster and add it to an existing raster mosaic:
+```
+hodor create raster --mosaic-id={asset-id} "data/org-name/asset-name-1/config.json"
+```
+
+### Bulk Load
+Hodor supports the bulk ingestion of raster and vector based on a single template `config.json` file.
+
+Hodor will create one new asset for every unique set of files in your `payload` directory. Each asset will be based on the template information provided in `config.json`, with the name the asset being derived from the name of the file.
+
+For example:
+
+    payload/
+      file1.tif
+      file1.tfw
+      file2.tif
+      file2.tfw
+
+Will create two assets named *file1* and *file2*, each with a TIF and TFW file associated with it.
+
+### Creating Layers
+When creating a new asset (currently only vector data) Hodor will automatically creating any layers specified in a `layers.json` file that resides in the same directory as your `config.json` file.
+
+### Raster Mosaics & Layers
+Hodor understand raster mosaics and layers, so when you create new raster assets Hodor can:
+
+- Add the newly created raster(s) to the mosaic supplied by `--mosaic-id`. Optionally, you may also trigger the mosaic to begin processing with `--process-mosaic`.
+- Add the newly created raster(s) to the layer supplied by `--layer-id`.
 
 ### JSON Config Files
 #### config.json
@@ -120,7 +147,7 @@ See the GME API documentation for the minimum required fields for [vector](https
 ```json
 {
   "projectId": "{your-gme-project-id}",
-  "name": "Alkimos 1964 Hodor Test",
+  "name": "Alkimos 1964 Hodor",
   "draftAccessList": "Map Editors",
   "attribution": "Landgate",
   "rasterType": "image",

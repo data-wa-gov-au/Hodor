@@ -8,10 +8,6 @@ from os import walk
 from retries import retries
 from hodor.cli import pass_context
 
-# @TODO Make the two create entry points accept:
-#   * A single config.json file with a payload directory
-#   * A directory with sub(-sub)-directories containing config.json and payload directories.
-#   * A directory with a single config.json acting as a template for multiple assets (this deprecates the bulk-load functionality)
 # @TODO Implement multithreading processing:
 #   * Using Pool.apply_async()
 #   * Just continue to dump logs to stdout at the moment
