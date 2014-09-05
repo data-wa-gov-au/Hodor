@@ -45,18 +45,18 @@ def raster(ctx, mosaic_id, process_mosaic, layer_id, configfile):
   """Create a new raster asset in Google Maps Engine"""
 
   # Create new raster asset
-  asset = uploader(ctx, "raster", ctx.service.rasters(), configfile)
+  raster = hodor_uploader(ctx, "raster", configfile)
 
   # Optionally, add it to an existing raster mosaic
   if mosaic_id is not None:
-    ctx.service.rasterCollections().rasters().batchInsert(id=mosaic_id, body={"ids": [asset["id"]]}).execute()
-    ctx.log("Asset '%s' added to mosaic '%s'" % (asset["id"], mosaic_id))
+    ctx.service.rasterCollections().rasters().batchInsert(id=mosaic_id, body={"ids": [raster["id"]]}).execute()
+    ctx.log("Asset '%s' added to mosaic '%s'" % (raster["id"], mosaic_id))
 
     if process_mosaic == True:
       ctx.service.rasterCollections().process(id=mosaic_id).execute()
       ctx.log("Mosaic '%s' processing started" % (mosaic_id))
 
-      # Poll until asset has processed
+      # Poll until raster has processed
       poll_asset_processing(ctx, mosaic_id, ctx.service.rasterCollections())
 
   # Optionally, add it to an existing layer
@@ -69,9 +69,9 @@ def raster(ctx, mosaic_id, process_mosaic, layer_id, configfile):
       raise Exception("The GME API currently only allows us to patch layers <= 100 datasources. Sad Keanu :(")
 
     ctx.service.layers().patch(id=layer_id, body={
-      "datasources": layer['datasources'] + [asset["id"]]
+      "datasources": layer['datasources'] + [raster["id"]]
     }).execute()
-    ctx.log("Asset '%s' added to layer '%s'" % (asset["id"], layer_id))
+    ctx.log("Asset '%s' added to layer '%s'" % (raster["id"], layer_id))
 
 
 @cli.command()
@@ -81,20 +81,71 @@ def raster(ctx, mosaic_id, process_mosaic, layer_id, configfile):
 @pass_context
 def vector(ctx, layer_configfile, configfile):
   """Create a new vector asset in Google Maps Engine"""
-  asset = uploader(ctx, "vector", ctx.service.tables(), configfile)
+  @retries(10)
+  def create_layer(ctx, config):
+    return ctx.service.layers().create(body=config, process=True).execute()
+
+  table = hodor_uploader(ctx, "vector", configfile)
 
   if layer_configfile:
-    create_vector_layers(ctx, asset["id"], layer_configfile)
+    config = json.load(layer_configfile)
+
+    for layer in config["layers"]:
+      layer["projectId"] = config["projectId"]
+      layer["datasources"] = [{"id": table["id"]}]
+
+      # Patch layers.json config with the optional styleFile and infoWindowFile parameters
+      if "styleFile" in layer:
+        styleFile = os.path.join(os.path.dirname(configfile.name), layer["styleFile"])
+        if os.path.exists(styleFile):
+          with open(styleFile) as f:
+            layer["style"] = json.load(f)
+          del layer["styleFile"]
+
+      if "infoWindowFile" in layer:
+        if "style" in layer:
+          infoWindowFile = os.path.join(os.path.dirname(configfile.name), layer["infoWindowFile"])
+          if os.path.exists(infoWindowFile):
+            with open(infoWindowFile) as f:
+              layer["style"]["featureInfo"]["content"] = f.read()
+        del layer["infoWindowFile"]
+
+      # Create layer
+      layer = create_layer(ctx, layer)
+      ctx.log("Layer '%s' created with id %s" % (layer['name'], layer['id']))
+
+      # Poll until asset has processed
+      poll_asset_processing(ctx, layer['id'], ctx.service.layers())
 
 
-def uploader(ctx, asset_type, resource, configfile):
+def hodor_uploader(ctx, asset_type, configfile):
+  """
+  Core uploader functionality for anything that adopts the
+  Hodor-esque configstore system.
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object
+  asset_type : str
+    The GME asset type represented. Possible values: vector, raster
+  configstore : Click.File | Click.Path
+    A pointer to the store of one or more asset configuration files.
+
+  Returns
+  -------
+  dict
+    An object representing the asset in GME.
+  """
   @retries(10)
-  def create_asset(resource, config):
+  def create_asset(ctx, resource, config):
     return resource.upload(body=config).execute()
 
-  config = json.load(configfile)
+  # Init resource
+  resource = ctx.service.tables() if asset_type == "vector" else ctx.service.rasters()
 
   # Fetch payload files
+  config = json.load(configfile)
   payloaddir = os.path.join(os.path.dirname(os.path.abspath(configfile.name)), "payload")
   if os.path.isdir(payloaddir):
     for (dirpath, dirnames, filenames) in walk(payloaddir):
@@ -104,8 +155,8 @@ def uploader(ctx, asset_type, resource, configfile):
   # Backwards compatibility for Aaron who was supplying the files in the config already
     payloaddir = os.path.dirname(configfile.name)
 
-  # Create skeleton table asset
-  response = create_asset(resource, config)
+  # Create skeleton asset
+  response = create_asset(ctx, resource, config)
   ctx.log("Table '%s' created with id %s" % (response['name'], response['id']))
 
   # Upload the payload files
@@ -116,38 +167,3 @@ def uploader(ctx, asset_type, resource, configfile):
 
   # Poll until asset has processed
   return poll_asset_processing(ctx, response['id'], resource)
-
-
-def create_vector_layers(ctx, assetId, configfile):
-  @retries(10)
-  def create_layer(ctx, config):
-    return ctx.service.layers().create(body=config, process=True).execute()
-
-  config = json.load(configfile)
-
-  for layer in config["layers"]:
-    # Patch layers.json config with the optional styleFile and infoWindowFile parameters
-    if "styleFile" in layer:
-      styleFile = os.path.join(os.path.dirname(configfile.name), layer["styleFile"])
-      if os.path.exists(styleFile):
-        with open(styleFile) as f:
-          layer["style"] = json.load(f)
-        del layer["styleFile"]
-
-    if "infoWindowFile" in layer:
-      if "style" in layer:
-        infoWindowFile = os.path.join(os.path.dirname(configfile.name), layer["infoWindowFile"])
-        if os.path.exists(infoWindowFile):
-          with open(infoWindowFile) as f:
-            layer["style"]["featureInfo"]["content"] = f.read()
-      del layer["infoWindowFile"]
-
-    # Create layer
-    layer["projectId"] = config["projectId"]
-    layer["datasources"] = [{"id": assetId}]
-
-    asset = create_layer(ctx, layer)
-    ctx.log("Layer '%s' created with id %s" % (asset['name'], asset['id']))
-
-    # Poll until asset has processed
-    poll_asset_processing(ctx, asset['id'], ctx.service.layers())

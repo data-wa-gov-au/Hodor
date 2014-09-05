@@ -156,7 +156,6 @@ def replaceFiles(ctx, table_id, payload_dir):
   payload_dir : str
     The path of the payload directory containing the files.
   """
-  # @TODO Generic timing code
 
   # Fetch the payload files
   config = {}
