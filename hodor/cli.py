@@ -84,15 +84,17 @@ class Context(object):
             # This is OK according to Google
             # http://stackoverflow.com/questions/7274554/why-google-native-oauth2-flow-require-client-secret
             config = {
-              "client_id": "75839337166-pc5il9vgrgseopqberqi9pcr4clglcng.apps.googleusercontent.com",
-              "client_secret": "OdkKJCeg_ocgu9XO9JjbGSlv"
+              "installed": {
+                "client_id": "75839337166-pc5il9vgrgseopqberqi9pcr4clglcng.apps.googleusercontent.com",
+                "client_secret": "OdkKJCeg_ocgu9XO9JjbGSlv"
+              }
             }
 
           flow = OAuth2WebServerFlow(
-            client_id=config['client_id'],
-            client_secret=config['client_secret'],
+            client_id=config['installed']['client_id'],
+            client_secret=config['installed']['client_secret'],
             scope=scope,
-            user_agent='Landgate-Hodor/1.0')
+            user_agent='Landgate-Hodor')
           credentials = run_oauth2(flow, credential_storage)
 
       if credentials is None or credentials.invalid:
