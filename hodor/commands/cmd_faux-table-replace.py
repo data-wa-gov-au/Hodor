@@ -270,3 +270,29 @@ def testJSON(ctx, configdir):
       print "%s: %s" % (configfile, len(valid_tables))
     else:
       print colored("%s: %s" % (configfile, len(valid_tables)), 'red')
+
+
+
+@cli.command()
+@click.argument('hodordir', type=click.Path(resolve_path=True))
+@click.argument('configdir', type=click.Path(resolve_path=True))
+@pass_context
+def createBATFiles(ctx, hodordir, configdir):
+  """Temporary function to create BAT files for running Faux Tabel Replace"""
+  configfiles = {}
+  for (dirpath, dirnames, filenames) in os.walk(configdir):
+    configfiles = [os.path.join(dirpath, f) for f in filenames if ".json" in f and "_style.json" not in f]
+
+  for configfile in configfiles:
+    batfile = configfile.replace(".json", ".bat")
+    with open(batfile, "w") as f:
+      f.write("""@echo off
+REM Automatically generated Hodor BAT file.
+%s
+hodor faux-table-replace runjob %s > %s
+""" % (
+        os.path.join(hodordir, "venv", "Scripts", "activate.bat"),
+        configfile,
+        configfile.replace(".json", ".log")
+      ))
+    exit()
