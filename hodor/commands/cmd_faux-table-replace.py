@@ -30,6 +30,7 @@ def runjob(ctx, configfile):
       http://en.wikipedia.org/wiki/Ozymandias
   """
 
+  ctx.log("### Begin Faux Table Replace for %s" % (configfile.name))
   config = json.load(configfile)
 
   if "title" not in config or "custodian" not in config:
@@ -229,7 +230,7 @@ def reprocessAndRepublishLayers(ctx, layers):
 
 
 @cli.command()
-@click.argument('configdir', type=click.Path())
+@click.argument('configdir', type=click.Path(resolve_path=True))
 @pass_context
 def testJSON(ctx, configdir):
   """Temporary function to evaluate the correctness of
@@ -283,20 +284,22 @@ def testJSON(ctx, configdir):
 @pass_context
 def createBATFiles(ctx, hodordir, configdir):
   """Temporary function to create BAT files for running Faux Tabel Replace"""
-  configfiles = {}
+  configfiles = []
   for (dirpath, dirnames, filenames) in os.walk(configdir):
-    configfiles = [os.path.join(dirpath, f) for f in filenames if ".json" in f and "_style.json" not in f]
+    configfiles += [os.path.join(dirpath, f) for f in filenames if ".json" in f and "_style.json" not in f]
 
   for configfile in configfiles:
     batfile = configfile.replace(".json", ".bat")
+    print batfile
     with open(batfile, "w") as f:
       f.write("""@echo off
 REM Automatically generated Hodor BAT file.
-%s
+echo Running %s
+cd E:\Sarlaadeeza\Hodor
+call venv\\Scripts\\activate.bat
 hodor faux-table-replace runjob %s > %s
 """ % (
-        os.path.join(hodordir, "venv", "Scripts", "activate.bat"),
+        batfile,
         configfile,
         configfile.replace(".json", ".log")
       ))
-    exit()
