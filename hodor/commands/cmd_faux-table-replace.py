@@ -216,3 +216,50 @@ def reprocessAndRepublishLayers(ctx, layers):
     ctx.log("Layer %s publishing begun." % (l["id"]))
     publishLayer(ctx, l["id"])
     poll_layer_publishing(ctx, l["id"])
+
+
+@cli.command()
+@click.argument('configdir', type=click.Path())
+@pass_context
+def testJSON(ctx, configdir):
+  from termcolor import colored
+
+  """Temporary function to evaluate the correctness of
+  our table searching code."""
+
+  configfiles = {}
+  for (dirpath, dirnames, filenames) in os.walk(configdir):
+    configfiles = [f for f in filenames if ".json" in f and "_style.json" not in f]
+    break
+
+  for configfile in configfiles:
+    with open(os.path.join(configdir, configfile), "r") as f:
+      config = json.load(f)
+
+    if "title" not in config:
+      print colored("%s: Error! Invalid configfile!" % (configfile), 'red')
+      continue
+
+    datasource_name_part = config["title"] + "_" + config['custodian']
+    if "partNumber" in config and "partCount" in config:
+      datasource_name_part += "_" + str(config["partNumber"]) + "_of_" + str(config["partCount"])
+
+    resource = ctx.service.tables()
+    request = resource.list(projectId="09372590152434720789", search=datasource_name_part.replace("_", " "))
+    tables = []
+
+    while request != None:
+      response = request.execute()
+      tables += response["tables"]
+      request = resource.list_next(request, response)
+
+    valid_tables = []
+    for t in tables:
+      m = re.search("^(" + datasource_name_part + "_[0-9]{8})$", t["name"])
+      if m and "archive" not in t["tags"] and t["processingStatus"] == "complete":
+        valid_tables.append(t)
+
+    if len(valid_tables) == 1:
+      print "%s: %s" % (configfile, len(valid_tables))
+    else:
+      print colored("%s: %s" % (configfile, len(valid_tables)), 'red')
