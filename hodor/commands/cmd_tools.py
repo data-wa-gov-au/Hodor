@@ -100,3 +100,41 @@ def dumprastermosaiclayers(ctx, projectid, creator_email, outfile):
   outfile_stats = outfile_stats.sort('num_layers', reverse=True)
   with open(outfile.name, "w") as f:
     f.write(outfile_stats.csv)
+
+
+@cli.command()
+@click.argument("project-id", type=str)
+@click.argument("table-id", type=str)
+@pass_context
+def measure_qps(ctx, project_id, table_id):
+  """
+  AssetId of the table to use for measuring. Typically a small table.
+  """
+  import time
+  from multiprocessing.dummy import Pool as ThreadPool
+  from apiclient.errors import HttpError
+
+  def list_projects(index):
+    service = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
+    start_time = time.time()
+    response = service.projects().list().execute()
+    return time.time() - start_time
+
+  # Measure features QPS
+  response = ctx.service.tables().features().list(id=table_id, maxResults=1, fields="allowedQueriesPerSecond").execute()
+  print "Allowed Feature QPS: %s" % (response["allowedQueriesPerSecond"])
+
+  # (Attempt to) measure non-features QPS
+  print "Attempting to measure non-features QPS..."
+  for threads in [25, 20, 15, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]:
+    pool = ThreadPool(threads)
+    try:
+      results = pool.map(list_projects, range(1, threads))
+      pool.close()
+      pool.join()
+
+      print "Testing %s QPS...Success!" % (threads)
+      break
+    except HttpError as e:
+      print "Testing %s QPS...Failed!" % (threads)
+      time.sleep(5)
