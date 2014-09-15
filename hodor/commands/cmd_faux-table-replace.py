@@ -36,10 +36,17 @@ def runjob(ctx, configfile):
   if "partNumber" in config and "partCount" in config:
     datasource_name_part += "_" + config["partNumber"] + "_of_" + config["partCount"]
 
-  response = ctx.service.tables().list(projectId=config["projectId"], search=datasource_name_part.replace("_", " ")).execute()
+  resource = ctx.service.tables()
+  request = resource.list(projectId=config["projectId"], search=datasource_name_part.replace("_", " "))
+  tables = []
+
+  while request != None:
+    response = request.execute()
+    tables += response["tables"]
+    request = resource.list_next(request, response)
 
   valid_tables = []
-  for t in response["tables"]:
+  for t in tables:
     m = re.search("^(" + datasource_name_part + "_[0-9]{8})$", t["name"])
     if m and "archive" not in t["tags"] and t["processingStatus"] == "complete":
       valid_tables.append(t)
