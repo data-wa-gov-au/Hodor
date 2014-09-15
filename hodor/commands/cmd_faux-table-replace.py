@@ -229,18 +229,20 @@ def reprocessAndRepublishLayers(ctx, layers):
 @click.argument('configdir', type=click.Path())
 @pass_context
 def testJSON(ctx, configdir):
-  from termcolor import colored
-
   """Temporary function to evaluate the correctness of
   our table searching code."""
+  from termcolor import colored
 
-  configfiles = {}
+  def list_tables(ctx, request):
+    time.sleep(1)
+    return request.execute()
+
+  configfiles = []
   for (dirpath, dirnames, filenames) in os.walk(configdir):
-    configfiles = [f for f in filenames if ".json" in f and "_style.json" not in f]
-    break
+    configfiles += [os.path.join(dirpath, f) for f in filenames if ".json" in f and "_style.json" not in f]
 
   for configfile in configfiles:
-    with open(os.path.join(configdir, configfile), "r") as f:
+    with open(configfile, "r") as f:
       config = json.load(f)
 
     if "title" not in config:
@@ -256,7 +258,7 @@ def testJSON(ctx, configdir):
     tables = []
 
     while request != None:
-      response = request.execute()
+      response = list_tables(ctx, request)
       tables += response["tables"]
       request = resource.list_next(request, response)
 
@@ -270,7 +272,6 @@ def testJSON(ctx, configdir):
       print "%s: %s" % (configfile, len(valid_tables))
     else:
       print colored("%s: %s" % (configfile, len(valid_tables)), 'red')
-
 
 
 @cli.command()
