@@ -32,6 +32,9 @@ def runjob(ctx, configfile):
 
   config = json.load(configfile)
 
+  if "title" not in config or "custodian" not in config:
+    raise Exception("Invalid JSON configuration file.")
+
   datasource_name_part = config["title"] + "_" + config['custodian']
   if "partNumber" in config and "partCount" in config:
     datasource_name_part += "_" + config["partNumber"] + "_of_" + config["partCount"]
