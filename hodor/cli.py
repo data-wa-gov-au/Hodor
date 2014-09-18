@@ -119,6 +119,9 @@ class Context(object):
       self.vlog("Changing TCP send buffer from %s to %s" % (connection.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF), 5242880))
       connection.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
 
+      self.vlog("Access Token: %s" % credentials.access_token)
+      self.access_token = credentials.access_token
+
       return resource
 
 pass_context = click.make_pass_decorator(Context, ensure=True)
