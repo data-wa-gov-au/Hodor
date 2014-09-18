@@ -298,6 +298,7 @@ echo Running %s
 cd E:\Sarlaadeeza\Hodor
 call venv\\Scripts\\activate.bat
 hodor faux-table-replace runjob %s > %s
+pause
 """ % (
         batfile,
         configfile,
