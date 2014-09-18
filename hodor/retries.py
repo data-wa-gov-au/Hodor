@@ -71,7 +71,7 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
         elif content['error']['errors'][0]['reason'] == 'internalError':
           raise InternalServerError("%s" % (content['error']['message']))
         elif content['error']['errors'][0]['reason'] == 'rateLimitExceeded':
-          raise exception # Retry 403 Rate Limit Exceeded (for uploads only)
+          pass # Retry 403 Rate Limit Exceeded (for uploads only)
 
       # Retry non-fatal errors like "server didn't respond in time", GME's random "internal server error", or rate limit exceeded errors
       elif exception.resp.status not in [410, 429, 500]:
