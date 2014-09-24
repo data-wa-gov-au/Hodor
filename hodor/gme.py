@@ -33,7 +33,7 @@ def upload_file(ctx, asset_id, asset_type, filepath, chunk_size=-1):
   if not media.mimetype():
     media = MediaFileUpload(filepath, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
 
-  resource = ctx.service.tables() if asset_type == "vector" else ctx.service.rasters()
+  resource = ctx.service().tables() if asset_type == "vector" else ctx.service().rasters()
   request = resource.files().insert(id=asset_id, filename=os.path.basename(filepath), media_body=media)
   response = None
   while response is None:
@@ -103,7 +103,7 @@ def poll_layer_publishing(ctx, asset_id):
   """
   @retries((180 * 60) / 10, delay=10, backoff=1)
   def poll(ctx, asset_id):
-    response = ctx.service.layers().get(id=asset_id).execute()
+    response = ctx.service().layers().get(id=asset_id).execute()
     if response['publishingStatus'] == 'published':
       return response
     else:
@@ -155,7 +155,7 @@ def get_viable_bboxes(ctx, table_id, minrequiredqps, bbox, pkey):
   @retries(10, delay=0.25, backoff=0.25)
   def features_list(polygon, pkey):
     request_start_time = time.time()
-    return ctx.service.tables().features().list(
+    return ctx.service().tables().features().list(
                 id=table_id, maxResults=1,
                 select=pkey,
                 intersects=polygon

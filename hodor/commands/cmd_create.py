@@ -52,26 +52,26 @@ def raster(ctx, mosaic_id, process_mosaic, layer_id, configstore):
   for raster in rasters:
     # Optionally, add it to an existing raster mosaic
     if mosaic_id is not None:
-      ctx.service.rasterCollections().rasters().batchInsert(id=mosaic_id, body={"ids": [raster["id"]]}).execute()
+      ctx.service().rasterCollections().rasters().batchInsert(id=mosaic_id, body={"ids": [raster["id"]]}).execute()
       ctx.log("Asset '%s' added to mosaic '%s'" % (raster["id"], mosaic_id))
 
       if process_mosaic == True:
-        ctx.service.rasterCollections().process(id=mosaic_id).execute()
+        ctx.service().rasterCollections().process(id=mosaic_id).execute()
         ctx.log("Mosaic '%s' processing started" % (mosaic_id))
 
         # Poll until raster has processed
-        poll_asset_processing(ctx, mosaic_id, ctx.service.rasterCollections())
+        poll_asset_processing(ctx, mosaic_id, ctx.service().rasterCollections())
 
     # Optionally, add it to an existing layer
     elif layer_id is not None:
-      layer = ctx.service.layers().get(id=layer_id).execute()
+      layer = ctx.service().layers().get(id=layer_id).execute()
 
       if layer['datasourceType'] != "image":
         raise Exception("Layer datasourceType is not 'image'.")
       if len(layer['datasources']) >= 100:
         raise Exception("The GME API currently only allows us to patch layers <= 100 datasources. Sad Keanu :(")
 
-      ctx.service.layers().patch(id=layer_id, body={
+      ctx.service().layers().patch(id=layer_id, body={
         "datasources": layer['datasources'] + [raster["id"]]
       }).execute()
       ctx.log("Asset '%s' added to layer '%s'" % (raster["id"], layer_id))
@@ -119,7 +119,7 @@ def hodor_uploader(ctx, asset_type, configstore):
     return resource.upload(body=config).execute()
 
   # Init resource
-  resource = ctx.service.tables() if asset_type == "vector" else ctx.service.rasters()
+  resource = ctx.service().tables() if asset_type == "vector" else ctx.service().rasters()
 
   # Process all available configfiles
   asset_configs = hodor_config_builder(configstore)
@@ -243,7 +243,7 @@ def layer_creator(ctx, asset, configfile):
   """
   @retries(10)
   def create_layer(ctx, config):
-    return ctx.service.layers().create(body=config, process=True).execute()
+    return ctx.service().layers().create(body=config, process=True).execute()
 
   with open(configfile, "r") as f:
     config = json.load(f)
@@ -275,4 +275,4 @@ def layer_creator(ctx, asset, configfile):
     ctx.log("Layer '%s' created with id %s" % (layer['name'], layer['id']))
 
     # Poll until asset has processed
-    poll_asset_processing(ctx, layer['id'], ctx.service.layers())
+    poll_asset_processing(ctx, layer['id'], ctx.service().layers())
