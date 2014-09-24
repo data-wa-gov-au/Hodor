@@ -7,6 +7,7 @@ import time
 import random
 import click
 import socket
+from multiprocessing import current_process
 from pprintpp import pprint as pp
 
 import mimetypes
@@ -44,6 +45,8 @@ class Context(object):
         self.CREDENTIALS_NATIVE_APP = 'oauth.json'
         self.CREDENTIALS_SERVICE_ACC = 'oauth-sa.json'
 
+        self.services = {}
+
     def log(self, msg, *args):
         """Logs a message to stdout."""
         if args:
@@ -57,6 +60,17 @@ class Context(object):
         """Logs a message to stderr only if verbose is enabled."""
         if self.verbose:
             self.log(msg, *args)
+
+    def service(self, scope=None, version="v1"):
+      if scope is None:
+        scope = self.RW_SCOPE
+
+      # @TODO (Issue 47) Do the Google Client Libs support a .refresh() method for getting a new access token? Surely they must!
+      service_hash = "{0},{1},{2}".format(current_process().ident, scope, version)
+
+      if service_hash not in self.services:
+        self.services[service_hash] = self.get_authenticated_service(scope, version)
+      return self.services[service_hash]
 
     def get_authenticated_service(self, scope, version):
       self.vlog('Authenticating...')
@@ -176,6 +190,3 @@ def cli(ctx, verbose, log_file, auth_type):
     ctx.logger.addHandler(fh)
 
   ctx.auth_type = auth_type
-  ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
-  ctx.service_exp2 = ctx.get_authenticated_service(ctx.RW_SCOPE, "exp2")
-  ctx.thread_safe_services = {}
