@@ -66,11 +66,21 @@ class Context(object):
         scope = self.RW_SCOPE
 
       # @TODO (Issue 47) Do the Google Client Libs support a .refresh() method for getting a new access token? Surely they must!
-      service_hash = "{0},{1},{2}".format(current_process().ident, scope, version)
+      ident = current_process().ident
+      service_hash = "{0},{1}".format(scope, version)
 
-      if service_hash not in self.services:
-        self.services[service_hash] = self.get_authenticated_service(scope, version)
-      return self.services[service_hash]
+      if ident not in self.services:
+        self.services[ident] = {}
+
+      if service_hash not in self.services[ident]:
+        self.services[ident][service_hash] = self.get_authenticated_service(scope, version)
+      return self.services[ident][service_hash]
+
+    def refresh_services(self):
+      ident = current_process().ident
+      if ident in self.services:
+        for s_hash in self.services[ident]:
+          self.services[ident][s_hash] = self.get_authenticated_service(*s_hash.split(","))
 
     def get_authenticated_service(self, scope, version):
       self.vlog('Authenticating...')

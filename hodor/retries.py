@@ -46,14 +46,9 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
         print "Token Expired, Reauthenticating..."
 
         if not isinstance(ctx, Context):
-          raise Exception("Could not find Context.")
+          raise Exception("Error: Could not find Context object. Calling method must pass Context as the first argument.")
 
-        proc = multiprocessing.current_process()
-        if proc.name.startswidth("PoolWorker"):
-          ctx.log("## pid %s getting a new token... ##" % (proc.pid))
-          ctx.thread_safe_services[proc.pid] = ctx.get_authenticated_service(ctx.RW_SCOPE)
-        else:
-          ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE)
+        ctx.refresh_services()
 
       # Files uploads return a 204 No Content "error" that needs to be handled farther up.
       elif exception.resp.status == 204:
