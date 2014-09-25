@@ -65,7 +65,6 @@ class Context(object):
       if scope is None:
         scope = self.RW_SCOPE
 
-      # @TODO (Issue 47) Do the Google Client Libs support a .refresh() method for getting a new access token? Surely they must!
       ident = current_process().ident
       service_hash = "{0},{1}".format(scope, version)
 
@@ -128,7 +127,6 @@ class Context(object):
         credentials.refresh(httplib2.Http())
 
       self.vlog("Access Token: %s" % credentials.access_token)
-      self.access_token = credentials.access_token
 
       self.vlog('Constructing Google Maps Engine %s service...' % (version))
       http = credentials.authorize(httplib2.Http())
@@ -142,9 +140,6 @@ class Context(object):
       connection = resource._http.connections.get(resource._http.connections.keys()[0]) # https:www.googleapis.com
       self.vlog("Changing TCP send buffer from %s to %s" % (connection.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF), 5242880))
       connection.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
-
-      self.vlog("Access Token: %s" % credentials.access_token)
-      self.access_token = credentials.access_token
 
       return resource
 
