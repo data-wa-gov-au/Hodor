@@ -5,6 +5,80 @@ from retries import retries
 from hodor.exceptions import *
 from shapely.geometry import box as bbox2poly
 from apiclient.http import MediaFileUpload
+from multiprocessing.dummy import Pool as ThreadPool
+from multiprocessing.dummy import current_process
+
+def upload_files_multithreaded(ctx, asset_id, asset_type, filepaths, chunk_size=-1):
+  """Upload a given set of files to an asset simultaneously.
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object.
+  asset_id : str
+    The Id of a valid raster or vector asset.
+  asset_type : str
+    The type of asset being represented. Possible values: table, raster
+  filepaths : arr
+    An array of absolute paths to the files.
+  chunk_size : int
+    The size of each upload chunk (must be a multiple of 256KB). Defaults to -1 (native Python streaming)
+  """
+  pool = ThreadPool(len(filepaths))
+  for filepath in filepaths:
+    pool.apply_async(upload_file_worker, args=(ctx, asset_id, asset_type, filepath, chunk_size,)).wait(timeout=1)
+  pool.close()
+  pool.join()
+
+
+def upload_file_worker(ctx, asset_id, asset_type, filepath, chunk_size):
+  """Upload a given file to an asset in its own thread as
+  part of upload_files_multithreaded().
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object.
+  asset_id : str
+    The Id of a valid raster or vector asset.
+  asset_type : str
+    The type of asset being represented. Possible values: table, raster
+  filepath : str
+    The absolute path to the file.
+  chunk_size : int
+    The size of each upload chunk (must be a multiple of 256KB). Defaults to -1 (native Python streaming)
+  """
+  @retries(1000)
+  def next_chunk(ctx, request):
+    return request.next_chunk()
+
+  proc = current_process()
+  ctx.thread_safe_services[proc.ident] = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
+
+  ctx.log("Begun uploading %s" % (os.path.basename(filepath)))
+  start_time = time.time()
+
+  media = MediaFileUpload(filepath, chunksize=chunk_size, resumable=True)
+  if not media.mimetype():
+    media = MediaFileUpload(filepath, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
+
+  resource = ctx.thread_safe_services[proc.ident].tables() if asset_type == "vector" else ctx.thread_safe_services[proc.ident].rasters()
+  request = resource.files().insert(id=asset_id, filename=os.path.basename(filepath), media_body=media)
+  response = None
+  while response is None:
+    try:
+      start_time_chunk = time.time()
+      progress, response = next_chunk(ctx, request)
+      # Dodgy math is dodgy
+      # if progress:
+      #   Mbps = ((chunk_size / (time.time() - start_time_chunk)) * 0.008 * 0.001)
+      #   ctx.log("%s%% (%s/Mbps)" % (round(progress.progress() * 100), round(Mbps, 2)))
+    except NoContent as e:
+      # Files uploads return a 204 No Content "error" that actually means it's finished successfully.
+      response = ""
+
+  ctx.log("Finished uploading %s (%s mins)" % (os.path.basename(filepath), round((time.time() - start_time) / 60, 2)))
+
 
 def upload_file(ctx, asset_id, asset_type, filepath, chunk_size=-1):
   """Upload a given file to an asset.
@@ -22,7 +96,7 @@ def upload_file(ctx, asset_id, asset_type, filepath, chunk_size=-1):
   chunk_size : int
     The size of each upload chunk (must be a multiple of 256KB). Defaults to -1 (native Python streaming)
   """
-  @retries(5)
+  @retries(1000)
   def next_chunk(ctx, request):
     return request.next_chunk()
 
@@ -51,6 +125,41 @@ def upload_file(ctx, asset_id, asset_type, filepath, chunk_size=-1):
   ctx.log("Finished uploading %s (%s mins)" % (os.path.basename(filepath), round((time.time() - start_time) / 60, 2)))
 
 
+def upload_file_init(ctx, asset_id, asset_type, filepath):
+  """Upload the first 256KB of a given file to an asset.
+  This forces it into an "uploading" state which prevents processing from
+  occurring until all files are uploaded.
+
+  Parameters
+  ----------
+  ctx : Context
+    A Click Context object.
+  asset_id : str
+    The Id of a valid raster or vector asset.
+  asset_type : str
+    The type of asset being represented. Possible values: table, raster
+  filepath : str
+    The absolute path to the file.
+  """
+  @retries(1000)
+  def next_chunk(ctx, request):
+    return request.next_chunk()
+
+  chunk_size = 262144 # 256KB - smallest possible chunk size for resumable upload
+  media = MediaFileUpload(filepath, chunksize=chunk_size, resumable=True)
+  if not media.mimetype():
+    media = MediaFileUpload(filepath, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
+
+  resource = ctx.service.tables() if asset_type == "vector" else ctx.service.rasters()
+  request = resource.files().insert(id=asset_id, filename=os.path.basename(filepath), media_body=media)
+
+  try:
+    next_chunk(ctx, request)
+  except NoContent as e:
+    pass
+  ctx.log("Init uploading %s" % (os.path.basename(filepath)))
+
+
 def poll_asset_processing(ctx, asset_id, resource):
   """Poll a given asset until its processing stage has completed.
 
@@ -68,13 +177,20 @@ def poll_asset_processing(ctx, asset_id, resource):
   dict
     A dictionary representing the asset in GME.
   """
-  @retries((180 * 60) / 10, delay=10, backoff=1)
+  @retries((180 * 60) / 10, delay=30, backoff=1)
   def poll(ctx, resource, asset_id):
     response = resource.get(id=asset_id).execute()
     if response['processingStatus'] in ['complete', 'failed']:
       return response
+    elif response['processingStatus'] == 'ready':
+      process(ctx, resource, asset_id)
+      raise Exception("Asset processing status is '%s'. Initiated reprocessing." % (response["processingStatus"]))
     else:
       raise Exception("Asset processing status is '%s'" % (response["processingStatus"]))
+
+  @retries(10)
+  def process(ctx, resource, asset_id):
+    return resource.process(id=asset_id).execute()
 
   start_time = time.time()
   response = poll(ctx, resource, asset_id)
@@ -101,7 +217,7 @@ def poll_layer_publishing(ctx, asset_id):
   dict
     A dictionary representing the layer in GME.
   """
-  @retries((180 * 60) / 10, delay=10, backoff=1)
+  @retries((180 * 60) / 10, delay=30, backoff=1)
   def poll(ctx, asset_id):
     response = ctx.service.layers().get(id=asset_id).execute()
     if response['publishingStatus'] == 'published':
