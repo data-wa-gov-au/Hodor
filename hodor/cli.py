@@ -29,8 +29,8 @@ from apiclient.http import MediaFileUpload
 CONTEXT_SETTINGS = dict(auto_envvar_prefix='HODOR')
 
 # No handlers could be found for logger "oauth2client.util"
-# import logging
-# logging.basicConfig(filename='debug.log',level=logging.DEBUG)
+import logging
+logging.basicConfig(filename='debug.log',level=logging.DEBUG)
 
 class Context(object):
 
