@@ -60,12 +60,24 @@ def gme_exc_handler(tries_remaining, exception, delay, args):
         raise NoContent()
 
       # Allow these fatal errors to bubble up - there's nowt we can do about them here.
-      elif exception.resp.status in [403, 500, 503]:
+      elif exception.resp.status in [403, 500, 503, 410]:
         content = json.loads(exception.content)
         if content['error']['errors'][0]['reason'] == 'queryTooExpensive':
           raise QueryTooExpensive("Query too expensive '%s'" % (content['error']['message']))
         elif content['error']['errors'][0]['reason'] == 'backendError':
-          raise BackendError("GME backend error '%s'" % (content['error']['message']))
+          # raise BackendError("GME backend error '%s'" % (content['error']['message']))
+
+          # content['error']['message'] == "Service is unavailable. Retry."
+          # HTTP 503 or 410
+
+          # content['error']['message'] == "Deadline exceeded."
+          # HTTP 410
+
+          print content
+          if content['error']['message'] == "Deadline exceeded.":
+            raise BackendError("GME backend error '%s'" % (content['error']['message']))
+          else:
+            pass
         elif content['error']['errors'][0]['reason'] == 'tableTooLarge':
           raise TableTooLarge("Table too large '%s'" % (content['error']['message']))
         elif content['error']['errors'][0]['reason'] == 'internalError':
@@ -97,7 +109,7 @@ def example_exc_handler(tries_remaining, exception, delay):
     print >> sys.stderr, "Caught '%s', %d tries remaining, sleeping for %s seconds" % (exception, tries_remaining, delay)
 
 
-def retries(max_tries, delay=1, backoff=2, exceptions=(Exception, HttpError, socket_error), hook=gme_exc_handler):
+def retries(max_tries, delay=1, backoff=1.1, exceptions=(Exception, HttpError, socket_error), hook=gme_exc_handler):
     """Function decorator implementing retrying logic.
 
     delay: Sleep this many seconds * backoff * try number after failure
