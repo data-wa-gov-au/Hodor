@@ -19,7 +19,7 @@ def list(ctx, projectid, type):
   def list(request):
     return request.execute()
 
-  resource = ctx.service.assets()
+  resource = ctx.service().assets()
   request = resource.list(projectId=projectid, type=type, fields="nextPageToken,assets/id,assets/name")
 
   while request != None:

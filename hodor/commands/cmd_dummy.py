@@ -24,14 +24,14 @@ def updates(ctx, table_id, payloaddir):
   # See for a better structure: https://developers.google.com/api-client-library/python/guide/pagination
   while True:
     if request is None:
-      request = ctx.service.tables().features().list(
+      request = ctx.service().tables().features().list(
                   id=table_id, maxResults=1000,
                   intersects="CIRCLE(116 -32, 5000)"
       )
       response = request.execute()
       updates += response["features"]
     else:
-      request = ctx.service.tables().features().list_next(request, response)
+      request = ctx.service().tables().features().list_next(request, response)
       if request is None:
         break
       response = request.execute()

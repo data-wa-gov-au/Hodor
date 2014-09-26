@@ -7,6 +7,7 @@ import time
 import random
 import click
 import socket
+from multiprocessing import current_process
 from pprintpp import pprint as pp
 
 import mimetypes
@@ -44,6 +45,8 @@ class Context(object):
         self.CREDENTIALS_NATIVE_APP = 'oauth.json'
         self.CREDENTIALS_SERVICE_ACC = 'oauth-sa.json'
 
+        self.services = {}
+
     def log(self, msg, *args):
         """Logs a message to stdout."""
         if args:
@@ -57,6 +60,26 @@ class Context(object):
         """Logs a message to stderr only if verbose is enabled."""
         if self.verbose:
             self.log(msg, *args)
+
+    def service(self, scope=None, version="v1"):
+      if scope is None:
+        scope = self.RW_SCOPE
+
+      ident = current_process().ident
+      service_hash = "{0},{1}".format(scope, version)
+
+      if ident not in self.services:
+        self.services[ident] = {}
+
+      if service_hash not in self.services[ident]:
+        self.services[ident][service_hash] = self.get_authenticated_service(scope, version)
+      return self.services[ident][service_hash]
+
+    def refresh_services(self):
+      ident = current_process().ident
+      if ident in self.services:
+        for s_hash in self.services[ident]:
+          self.services[ident][s_hash] = self.get_authenticated_service(*s_hash.split(","))
 
     def get_authenticated_service(self, scope, version):
       self.vlog('Authenticating...')
@@ -104,7 +127,6 @@ class Context(object):
         credentials.refresh(httplib2.Http())
 
       self.vlog("Access Token: %s" % credentials.access_token)
-      self.access_token = credentials.access_token
 
       self.vlog('Constructing Google Maps Engine %s service...' % (version))
       http = credentials.authorize(httplib2.Http())
@@ -118,9 +140,6 @@ class Context(object):
       connection = resource._http.connections.get(resource._http.connections.keys()[0]) # https:www.googleapis.com
       self.vlog("Changing TCP send buffer from %s to %s" % (connection.sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF), 5242880))
       connection.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 5242880)
-
-      self.vlog("Access Token: %s" % credentials.access_token)
-      self.access_token = credentials.access_token
 
       return resource
 
@@ -176,6 +195,3 @@ def cli(ctx, verbose, log_file, auth_type):
     ctx.logger.addHandler(fh)
 
   ctx.auth_type = auth_type
-  ctx.service = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
-  ctx.service_exp2 = ctx.get_authenticated_service(ctx.RW_SCOPE, "exp2")
-  ctx.thread_safe_services = {}

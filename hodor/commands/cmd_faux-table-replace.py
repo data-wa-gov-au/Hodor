@@ -60,7 +60,7 @@ def runjob(ctx, skip_upload, configfile):
   if "partNumber" in config and "partCount" in config:
     datasource_name_part += "_" + str(config["partNumber"]) + "_of_" + str(config["partCount"])
 
-  resource = ctx.service.tables()
+  resource = ctx.service().tables()
   request = resource.list(projectId=config["projectId"], search=datasource_name_part.replace("_", " "))
   tables = []
 
@@ -201,7 +201,7 @@ def patchLayers(ctx, layers, table_id):
 
   @retries(100)
   def patch(ctx, layer_id, body):
-    return ctx.service_exp2.layers().patch(id=layer_id, body=body).execute()
+    return ctx.service()(version="exp2").layers().patch(id=layer_id, body=body).execute()
 
   for l in layers:
     patch(ctx, l["id"], {
@@ -250,7 +250,7 @@ def replaceFiles(ctx, table_id, payload_dir):
   # ctx.log("All uploads completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
   # Poll until asset has processed
-  poll_asset_processing(ctx, table_id, ctx.service.tables())
+  poll_asset_processing(ctx, table_id, ctx.service().tables())
 
 
 def deleteTable(ctx, table_id):
@@ -304,12 +304,12 @@ def reprocessAndRepublishLayers(ctx, layers):
 
   @retries(100, delay=5)
   def publishLayer(ctx, layer_id):
-    return ctx.service.layers().publish(id=layer_id).execute()
+    return ctx.service().layers().publish(id=layer_id).execute()
 
   for l in layers:
     ctx.log("Layer %s processesing begun." % (l["id"]))
     processLayer(ctx, l["id"])
-    poll_asset_processing(ctx, l["id"], ctx.service.layers())
+    poll_asset_processing(ctx, l["id"], ctx.service().layers())
 
     ctx.log("Layer %s publishing begun." % (l["id"]))
     publishLayer(ctx, l["id"])
@@ -344,7 +344,7 @@ def testJSON(ctx, configdir):
     if "partNumber" in config and "partCount" in config:
       datasource_name_part += "_" + str(config["partNumber"]) + "_of_" + str(config["partCount"])
 
-    resource = ctx.service.tables()
+    resource = ctx.service().tables()
     request = resource.list(projectId="09372590152434720789", search=datasource_name_part.replace("_", " "))
     tables = []
 

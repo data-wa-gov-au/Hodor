@@ -20,7 +20,7 @@ def cli(ctx):
 @click.argument('outfile', type=click.File(mode='ra'))
 @pass_context
 def make_rasters_searchable(ctx, outfile):
-  resource = ctx.service.assets()
+  resource = ctx.service().assets()
   request = resource.list(projectId="09372590152434720789", fields="nextPageToken,assets/id,assets/name,assets/type,assets/tags")
 
   taggedAssets = tablib.Dataset(headers=('assetId', 'type', 'name'))
@@ -36,11 +36,11 @@ def make_rasters_searchable(ctx, outfile):
       # Skip vector table layers
       if asset["type"] == "layer":
         try:
-          layer = ctx.service.layers().get(id=asset["id"], fields="datasourceType").execute()
+          layer = ctx.service().layers().get(id=asset["id"], fields="datasourceType").execute()
         except HttpError as e:
           pp(asset)
           raise e
-          
+
         if "datasourceType" not in layer:
           continue
         if layer["datasourceType"] == "table":
@@ -54,7 +54,7 @@ def make_rasters_searchable(ctx, outfile):
         del asset["tags"][asset["tags"].index("notsearchable")]
         # pp(asset["tags"])
 
-        assetResource = getResourceForAsset(ctx.service, asset["type"])
+        assetResource = getResourceForAsset(ctx.service(), asset["type"])
         assetResource.patch(id=asset["id"], body={
           "tags": asset["tags"]
         }).execute()
@@ -78,7 +78,7 @@ def tag_all_notapproved(ctx, outfile, errfile):
     with open(errfile.name, "w") as f:
       f.write(erroredAssets.csv)
 
-  resource = ctx.service.assets()
+  resource = ctx.service().assets()
   request = resource.list(projectId="09372590152434720789", fields="nextPageToken,assets/id,assets/name,assets/type,assets/tags")
 
   taggedAssets = tablib.Dataset(headers=('assetId', 'type'))
@@ -102,7 +102,7 @@ def tag_all_notapproved(ctx, outfile, errfile):
       asset["tags"].append("notsearchable")
 
       if len(asset["tags"]) <= 25:
-        assetResource = getResourceForAsset(ctx.service, asset["type"])
+        assetResource = getResourceForAsset(ctx.service(), asset["type"])
 
         try:
           assetResource.patch(id=asset["id"], body={
@@ -134,13 +134,13 @@ def remove_tag_from_asset(ctx, csvfile):
   for a in assets:
     assetId, assetType, layerName = a
 
-    asset = ctx.service.assets().get(id=assetId, fields="id,type,tags").execute()
+    asset = ctx.service().assets().get(id=assetId, fields="id,type,tags").execute()
     if "notsearchable" not in asset["tags"]:
       continue
 
     del asset["tags"][asset["tags"].index("notsearchable")]
 
-    assetResource = getResourceForAsset(ctx.service, asset["type"])
+    assetResource = getResourceForAsset(ctx.service(), asset["type"])
     assetResource.patch(id=asset["id"], body={
       "tags": asset["tags"]
     }).execute()
@@ -152,11 +152,11 @@ def remove_tag_from_asset(ctx, csvfile):
 def get_map_layers_and_tables(ctx, outfile):
   # locateMapId = "09372590152434720789-00913315481290556980"
   sandboxMapId = "09372590152434720789-00440247219122458144"
-  map = ctx.service.maps().get(id=sandboxMapId).execute()
+  map = ctx.service().maps().get(id=sandboxMapId).execute()
   assets = tablib.Dataset(headers=('assetId', 'type', 'layer_name'))
 
   for layerId in getMapLayerIds(map):
-    layer = ctx.service.layers().get(id=layerId, fields="name,datasources,datasourceType").execute()
+    layer = ctx.service().layers().get(id=layerId, fields="name,datasources,datasourceType").execute()
     assets.append([layerId, "layer", layer["name"]])
     if layer["datasourceType"] == "table":
       for table in layer["datasources"]:
@@ -170,15 +170,15 @@ def get_map_layers_and_tables(ctx, outfile):
 @pass_context
 def get_locate_public_tables(ctx, outfile):
   locateMapId = "09372590152434720789-00913315481290556980"
-  locate = ctx.service.maps().get(id=locateMapId).execute()
+  locate = ctx.service().maps().get(id=locateMapId).execute()
   assets = tablib.Dataset(headers=('assetId', 'type', 'layer_name'))
 
   @retries(2)
   def getPermissions(table):
-    return ctx.service_exp2.tables().permissions().list(id=table["id"]).execute()
+    return ctx.service()(version="exp2").tables().permissions().list(id=table["id"]).execute()
 
   for layerId in getMapLayerIds(locate):
-    layer = ctx.service.layers().get(id=layerId, fields="name,datasources,datasourceType").execute()
+    layer = ctx.service().layers().get(id=layerId, fields="name,datasources,datasourceType").execute()
     if layer["datasourceType"] == "table":
       for table in layer["datasources"]:
         for p in getPermissions(table)["permissions"]:
@@ -198,7 +198,7 @@ def tag_locate_wfs1_service(ctx, infile):
 
   for t in assets:
     tableId, assetType, layerName = t
-    table = ctx.service.tables().get(id=tableId, fields="id,name,tags").execute()
+    table = ctx.service().tables().get(id=tableId, fields="id,name,tags").execute()
 
     # Remove trailing whitespace
     for k, tag in enumerate(table["tags"]):
@@ -217,7 +217,7 @@ def tag_locate_wfs1_service(ctx, infile):
     tags.append("wfs:Locate")
     tags.append(dsTag)
 
-    ctx.service.tables().patch(id=table["id"], body={
+    ctx.service().tables().patch(id=table["id"], body={
       "tags": tags
     }).execute()
     ctx.log("%s (%s) patched with %s" % (tableId, layerName, dsTag))

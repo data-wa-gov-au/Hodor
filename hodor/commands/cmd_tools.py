@@ -33,10 +33,10 @@ def tag_all_rasters(ctx):
       # Tag and untag all rasters to trigger GME to switch them to the new ACL system
       content = json.loads(content)
       for r in content['rasters']:
-        patch = ctx.service.rasters().patch(id=r['id'], body={
+        patch = ctx.service().rasters().patch(id=r['id'], body={
           "tags": r['tags'] + ["hodor-patch"]
         }).execute()
-        patch = ctx.service.rasters().patch(id=r['id'], body={
+        patch = ctx.service().rasters().patch(id=r['id'], body={
           "tags": r['tags']
         }).execute()
         ctx.log("%s patched OK" % (r['id']))
@@ -67,7 +67,7 @@ Stroke: %s (opacity=%s), width %s""" % (polygonOptions['fill']['color'], round(p
     return filter_str
 
   rules_str = ""
-  layer = ctx.service.layers().get(id=layer_id, fields='style').execute()
+  layer = ctx.service().layers().get(id=layer_id, fields='style').execute()
   for rule in layer['style']['displayRules']:
     rules_str += common2html(rule) + "\n"
     rules_str += polygonOptions2html(rule['polygonOptions']) + "\n"
@@ -82,7 +82,7 @@ Stroke: %s (opacity=%s), width %s""" % (polygonOptions['fill']['color'], round(p
 @click.argument('outfile', type=click.File(mode='w'))
 @pass_context
 def dumprastermosaiclayers(ctx, projectid, creator_email, outfile):
-  resource = ctx.service.layers()
+  resource = ctx.service().layers()
   request = resource.list(projectId=projectid, creatorEmail=creator_email, fields='layers/id,layers/name,layers/datasourceType')
   outfile_stats = tablib.Dataset(headers=('id', 'name', 'num_layers'))
 
@@ -121,7 +121,7 @@ def measure_qps(ctx, project_id, table_id):
     return time.time() - start_time
 
   # Measure features QPS
-  response = ctx.service.tables().features().list(id=table_id, maxResults=1, fields="allowedQueriesPerSecond").execute()
+  response = ctx.service().tables().features().list(id=table_id, maxResults=1, fields="allowedQueriesPerSecond").execute()
   print "Allowed Feature QPS: %s" % (response["allowedQueriesPerSecond"])
 
   # (Attempt to) measure non-features QPS
@@ -138,3 +138,68 @@ def measure_qps(ctx, project_id, table_id):
     except HttpError as e:
       print "Testing %s QPS...Failed!" % (threads)
       time.sleep(5)
+
+
+@cli.command()
+@click.argument("project-id", type=str)
+@click.argument("outfile", type=click.File(mode='w'))
+@pass_context
+def strip_tag_whitespace(ctx, project_id, outfile):
+  """
+  Strip trailing and leading whitespace from tags.
+
+  Parameters
+  ----------
+  project_id : str
+    A Google Maps Engine ProjectId
+  outfile : Click.File
+    A file to log processed assets to in CSV format.
+  """
+  @retries(100)
+  def list_asset(ctx, request):
+    return request.execute()
+
+  @retries(100)
+  def patch_asset(ctx, asset_id, config):
+    # @TODO Needs to work for all types of asset individually - I don't think assets() has patch()
+    return ctx.service().assets().patch(id=asset_id, body=config).execute()
+
+  outfile_data = tablib.Dataset(headers=("id", "name", "gme_url", "tags_original", "tags_modified", "processed"))
+  outfile_data.csv = outfile.read()
+  asset_ids = outfile["id"] # Required to make tablib return a list...for reasons unknown.
+
+  resource = ctx.service().assets()
+  request = resource.list(projectId=project_id, fields="nextPageToken,asset/id,asset/name,asset/tags")
+  while request != None:
+    response = list_assets(ctx, request)
+
+    for a in response["assets"]:
+      if a["id"] in asset_ids:
+        continue
+
+      pp(asset["tags"])
+      for t in a["tags"]:
+        t = t.trim()
+      tags_fixed = a["tags"].join(",")
+      pp(asset["tags"])
+      print tags_fixed
+      exit()
+
+      if len(asset["tags"]) <= 25:
+        processed = True
+        ctx.log("%s (%s) patched" % (a["id"], a["name"]))
+        patch_asset(ctx, a["id"], {
+          "tags": a["tags"]
+        })
+      else:
+        processed = False
+        ctx.log("%s (%s) failed patching due to too many tags" % (a["id"], a["name"]))
+
+      # Log operation
+      # @TODO GME URL
+      gme_url = "https://mapsengine.google.com/..."
+      outfile_data.append([a["id"], a["name"], gme_url, a["tags"], tags_fixed, processed])
+      with open(outfile.name, "w") as f:
+        f.write(outfile_data.csv)
+
+    request = resource.list_next(request, response)

@@ -6,6 +6,6 @@ from hodor.cli import pass_context
 @pass_context
 @retries(2)
 def cli(ctx):
-  response = ctx.service.projects().list().execute()
+  response = ctx.service().projects().list().execute()
   for project in response['projects']:
    click.echo("%s (%s)" % (project["id"], project["name"]))

@@ -64,7 +64,7 @@ def list(ctx, where, bbox, debug, bbox_cache, minimum_qps, num_processes, table_
   """
 
   # Retrieve the primary key column
-  table = ctx.service.tables().get(id=table_id, fields="schema,bbox").execute()
+  table = ctx.service().tables().get(id=table_id, fields="schema,bbox").execute()
   pkey = table['schema']['primaryKey']
 
   # Fetch bounding boxes
