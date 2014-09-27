@@ -61,16 +61,17 @@ class Context(object):
         if self.verbose:
             self.log(msg, *args)
 
-    def service(self, scope=None, version="v1"):
+    def service(self, scope=None, version="v1", ident=None):
       if scope is None:
         scope = self.RW_SCOPE
 
-      ident = current_process().ident
+      if ident is None:
+        ident = current_process().ident
+        
       service_hash = "{0},{1}".format(scope, version)
 
       if ident not in self.services:
         self.services[ident] = {}
-
       if service_hash not in self.services[ident]:
         self.services[ident][service_hash] = self.get_authenticated_service(scope, version)
       return self.services[ident][service_hash]

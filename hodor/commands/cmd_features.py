@@ -11,7 +11,7 @@ from apiclient.errors import HttpError
 from hodor.gme import bbox2quarters, get_viable_bboxes
 from math import ceil
 from hodor.exceptions import BackendError
-from multiprocessing import Manager, Pool
+from multiprocessing import Manager, Pool, current_process
 from retries import retries
 from hodor.cli import pass_context
 from hodor.gme import obey_qps
@@ -197,17 +197,12 @@ def get_features(args):
     if debug:
       import hodor.httplib2_patch
 
-    pid = multiprocessing.current_process().pid
-    if pid not in ctx.thread_safe_services:
-      ctx.log("## pid %s getting a new token... ##" % (pid))
-      ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
-
     thread_start_time = time.time()
     while bboxes:
       features = []
 
       bbox = bboxes.pop(0)
-      resource = ctx.thread_safe_services[pid].tables().features()
+      resource = ctx.service(ident=current_process().ident).tables().features()
       request = resource.list(
         id=table_id, maxResults=1000,
         intersects=bbox2poly(*bbox),

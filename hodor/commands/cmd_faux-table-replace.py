@@ -9,7 +9,7 @@ from pprintpp import pprint as pp
 from retries import retries
 from hodor.cli import pass_context
 from apiclient.errors import HttpError
-from hodor.gme import upload_file, upload_file_init, upload_files_multithreaded, poll_asset_processing, poll_layer_publishing
+from hodor.gme import *
 
 @click.group(short_help="For performing faux table replace in GME whereby datasources an be updated without altering assetIds.")
 @pass_context
@@ -232,9 +232,9 @@ def replaceFiles(ctx, table_id, payload_dir):
     filepaths = [os.path.join(payload_dir, f) for f in filenames if f != ".DS_Store"]
     break
 
-  # Upload the payload files in separate threads
+  # Upload each of the payload files in a separate thread
   start_time = time.time()
-  upload_files_multithreaded(ctx, table_id, "vector", filepaths, chunk_size=20971520)
+  upload_files_multithreaded(ctx, table_id, Asset.TABLE, filepaths, chunk_size=20971520)
   ctx.log("All uploads completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
   # # Hacky workaround that doesn't use multi-threading.

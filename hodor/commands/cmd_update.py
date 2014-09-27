@@ -56,11 +56,6 @@ def batchRequestsThread(blob):
 
   chunk, ctx, operation, table_id, start_index = blob
 
-  pid = multiprocessing.current_process().pid
-  if pid not in ctx.thread_safe_services:
-    ctx.log("## Get New Service %s ##" % (pid))
-    ctx.thread_safe_services[pid] = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
-
   # Make features GME-safe
   for f in chunk:
     # Ignore geometry for now - we'd have to fix GME's counter-winding geom thing
@@ -73,7 +68,7 @@ def batchRequestsThread(blob):
 
   start_time = time.time()
 
-  batchOperation = getattr(ctx.thread_safe_services[pid].tables().features(), operation)
+  batchOperation = getattr(ctx.service(ident=multiprocessing.current_process().ident).tables().features(), operation)
 
   start_time = time.time()
   request(batchOperation, table_id, chunk)
