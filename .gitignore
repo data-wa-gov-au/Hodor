@@ -8,3 +8,4 @@ bak/
 *.csv
 hodor*.log
 patch.py
+debug.log

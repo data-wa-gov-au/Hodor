@@ -126,11 +126,11 @@ class Context(object):
         self.vlog("Refreshing access token!")
         credentials.refresh(httplib2.Http())
 
-      self.vlog("Access Token: %s" % credentials.access_token)
-
       self.vlog('Constructing Google Maps Engine %s service...' % (version))
       http = credentials.authorize(httplib2.Http())
+
       resource = discovery_build('mapsengine', version, http=http)
+      self.vlog("Access Token: %s" % credentials.access_token)
 
       # Fix for the default TCP send buffer being so riciculosuly low on Windows (8192)
       # These lines of code represent two days of work by multiple people.
