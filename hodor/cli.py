@@ -67,11 +67,11 @@ class Context(object):
 
       if ident is None:
         ident = current_process().ident
-        
-      service_hash = "{0},{1}".format(scope, version)
 
       if ident not in self.services:
         self.services[ident] = {}
+
+      service_hash = "{0},{1}".format(scope, version)
       if service_hash not in self.services[ident]:
         self.services[ident][service_hash] = self.get_authenticated_service(scope, version)
       return self.services[ident][service_hash]
@@ -87,6 +87,7 @@ class Context(object):
 
       credential_storage = CredentialStorage(self.CREDENTIALS_STORE)
       credentials = credential_storage.get()
+      http = httplib2.Http()
 
       if credentials is None or credentials.invalid:
         # Service Account
@@ -125,10 +126,10 @@ class Context(object):
         raise Exception("Unable to obtain valid credentials.")
       elif credentials.access_token_expired is True:
         self.vlog("Refreshing access token!")
-        credentials.refresh(httplib2.Http())
+        credentials.refresh(http)
 
       self.vlog('Constructing Google Maps Engine %s service...' % (version))
-      http = credentials.authorize(httplib2.Http())
+      http = credentials.authorize(http)
 
       resource = discovery_build('mapsengine', version, http=http)
       self.vlog("Access Token: %s" % credentials.access_token)
