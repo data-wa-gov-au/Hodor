@@ -245,6 +245,10 @@ def layer_creator(ctx, asset, configfile):
   def create_layer(ctx, config):
     return ctx.service().layers().create(body=config, process=True).execute()
 
+  @retries(10)
+  def publish_layer(ctx, layer_id):
+    return ctx.service().layers().publish(id=layer_id).execute()
+
   with open(configfile, "r") as f:
     config = json.load(f)
 
@@ -274,5 +278,6 @@ def layer_creator(ctx, asset, configfile):
     layer = create_layer(ctx, layer)
     ctx.log("Layer '%s' created with id %s" % (layer['name'], layer['id']))
 
-    # Poll until asset has processed
+    # Process and publish
     poll_asset_processing(ctx, layer['id'], ctx.service().layers())
+    publish_layer(ctx, layer['id'])

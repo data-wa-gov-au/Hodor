@@ -183,6 +183,7 @@ def poll_asset_processing(ctx, asset_id, resource):
     if response['processingStatus'] in ['complete', 'failed']:
       return response
     elif response['processingStatus'] == 'ready':
+      # Fix for GME's issue where it mistakenly reports 'ready for processing' upon completion.
       process(ctx, resource, asset_id)
       raise Exception("Asset processing status is '%s'. Initiated reprocessing." % (response["processingStatus"]))
     else:
