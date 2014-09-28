@@ -8,9 +8,10 @@ setup(
     scripts=['hodor/retries.py'],
     install_requires=[
         'Click==2.4',
+        'pyopenssl',
+        'pycrypto',
         'google-api-python-client',
         'python-gflags',
-        'pyOpenSSL',
         'httplib2',
         'pprintpp',
         'multiprocessing',
