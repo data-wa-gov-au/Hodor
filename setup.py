@@ -1,11 +1,10 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='Hodor',
     version='0.3',
-    packages=['hodor', 'hodor.commands'],
+    packages=find_packages(),
     include_package_data=True,
-    scripts=['hodor/retries.py'],
     install_requires=[
         'Click==2.4',
         'pyopenssl',

@@ -2,6 +2,7 @@ test-data/
 venv/
 Hodor.egg-info/
 bak/
+hodor/commands/cmd_lg-*.py
 
 *.pyc
 *.json
