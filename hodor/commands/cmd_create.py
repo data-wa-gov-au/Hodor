@@ -2,7 +2,7 @@ import click
 import json
 import os
 import time
-from hodor.gme import upload_file, poll_asset_processing, poll_layer_publishing
+from hodor.gme import *
 from pprintpp import pprint as pp
 from os import walk
 from retries import retries
@@ -16,8 +16,8 @@ from hodor.cli import pass_context
 
 @click.group(short_help="Create assets in Google Maps Engine")
 # https://google-api-python-client.googlecode.com/hg/docs/epy/apiclient.http.MediaFileUpload-class.html
-@click.option('--chunk-size', default=10485760,
-              help='File chunk size in bytes. Defaults to chunks of 10mb. Pass -1 to use native streaming in Python instead.')
+@click.option('--chunk-size', default=20971520,
+              help='File chunk size in bytes. Defaults to chunks of 20mb. Pass -1 to use native streaming in Python instead.')
 @click.option('--asset-processing-wait', default=90,
               help='Length of time in minutes we should wait for an asset to process before giving up. Defaults to 90 minutes.')
 @pass_context
@@ -47,7 +47,7 @@ def raster(ctx, mosaic_id, process_mosaic, layer_id, configstore):
     A pointer to the store of one or more asset configuration files.
   """
 
-  rasters = hodor_uploader(ctx, "raster", configstore)
+  rasters = hodor_uploader(ctx, Asset.RASTER, configstore)
 
   for raster in rasters:
     # Optionally, add it to an existing raster mosaic
@@ -92,7 +92,7 @@ def vector(ctx, configstore):
     A pointer to the store of one or more asset configuration files.
   """
 
-  hodor_uploader(ctx, "vector", configstore)
+  vectors = hodor_uploader(ctx, Asset.TABLE, configstore)
 
 
 def hodor_uploader(ctx, asset_type, configstore):
@@ -104,8 +104,8 @@ def hodor_uploader(ctx, asset_type, configstore):
   ----------
   ctx : Context
     A Click Context object
-  asset_type : str
-    The GME asset type represented. Possible values: vector, raster
+  asset_type : int
+    A GME asset type defined by the Asset class.
   configstore : Click.Path
     A pointer to the store of one or more asset configuration files.
 
@@ -118,8 +118,7 @@ def hodor_uploader(ctx, asset_type, configstore):
   def create_asset(ctx, resource, config):
     return resource.upload(body=config).execute()
 
-  # Init resource
-  resource = ctx.service().tables() if asset_type == "vector" else ctx.service().rasters()
+  resource = get_asset_resource(ctx.service(), asset_type)
 
   # Process all available configfiles
   asset_configs = hodor_config_builder(configstore)
@@ -132,17 +131,17 @@ def hodor_uploader(ctx, asset_type, configstore):
       response = create_asset(ctx, resource, config)
       ctx.log("Asset '%s' created with id %s" % (response['name'], response['id']))
 
-      # Upload the payload files
+      # Upload each of the payload files in a separate thread
+      filepaths = [os.path.join(payloaddir, f['filename']) for f in config['files']]
       start_time = time.time()
-      for f in config['files']:
-        upload_file(ctx, response['id'], asset_type, os.path.join(payloaddir, f['filename']), ctx.chunk_size)
+      upload_files_multithreaded(ctx, response['id'], asset_type, filepaths, chunk_size=ctx.chunk_size)
       ctx.log("All uploads completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
 
       # Poll until asset has processed
       poll_asset_processing(ctx, response['id'], resource)
 
-      # Optionally, create any layers the user has provided config for
-      if asset_type == "vector" and os.path.isfile(os.path.join(asset_dir, "layers.json")):
+      # Optionally, create any layers the user has provided config for.
+      if os.path.isfile(os.path.join(asset_dir, "layers.json")):
         layer_creator(ctx, response, os.path.join(asset_dir, "layers.json"))
 
       asset_ids.append(response["id"])
@@ -231,8 +230,7 @@ def hodor_config_builder(configstore):
 
 
 def layer_creator(ctx, asset, configfile):
-  """Creates layers from an asset according to
-  user-supplied config.
+  """Creates layers from an asset according to user-supplied config.
 
   ctx : Context
     A Click Context object.
@@ -244,6 +242,10 @@ def layer_creator(ctx, asset, configfile):
   @retries(10)
   def create_layer(ctx, config):
     return ctx.service().layers().create(body=config, process=True).execute()
+
+  @retries(10)
+  def publish_layer(ctx, layer_id):
+    return ctx.service().layers().publish(id=layer_id).execute()
 
   with open(configfile, "r") as f:
     config = json.load(f)
@@ -274,5 +276,7 @@ def layer_creator(ctx, asset, configfile):
     layer = create_layer(ctx, layer)
     ctx.log("Layer '%s' created with id %s" % (layer['name'], layer['id']))
 
-    # Poll until asset has processed
+    # Process and publish
     poll_asset_processing(ctx, layer['id'], ctx.service().layers())
+    publish_layer(ctx, layer['id'])
+    poll_layer_publishing(ctx, layer['id'])

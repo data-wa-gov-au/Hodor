@@ -8,6 +8,34 @@ from apiclient.http import MediaFileUpload
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing.dummy import current_process
 
+class Asset:
+  TABLE = 1
+  RASTER = 2
+  RASTER_COLLECTION = 3
+  LAYER = 4
+  MAP = 5
+  PROJECT = 6
+
+def get_asset_resource(service, type):
+  """Gets the correct base resource for an asset.
+
+  Parameters
+  ----------
+  service : apiclient.discovery.Resource
+    A GME API Client discovery resource.
+  type : int
+    A GME asset type defined by the Asset class.
+  """
+  return {
+    Asset.TABLE: service.tables(),
+    Asset.RASTER: service.rasters(),
+    Asset.RASTER_COLLECTION: service.rasterCollections(),
+    Asset.LAYER: service.layers(),
+    Asset.MAP: service.maps(),
+    Asset.PROJECT: service.projects()
+  }[type]
+
+
 def upload_files_multithreaded(ctx, asset_id, asset_type, filepaths, chunk_size=-1):
   """Upload a given set of files to an asset simultaneously.
 
@@ -17,8 +45,8 @@ def upload_files_multithreaded(ctx, asset_id, asset_type, filepaths, chunk_size=
     A Click Context object.
   asset_id : str
     The Id of a valid raster or vector asset.
-  asset_type : str
-    The type of asset being represented. Possible values: table, raster
+  asset_type : int
+    A GME asset type defined by the Asset class.
   filepaths : arr
     An array of absolute paths to the files.
   chunk_size : int
@@ -44,8 +72,8 @@ def upload_file_worker(ctx, asset_id, asset_type, filepath, chunk_size):
     A Click Context object.
   asset_id : str
     The Id of a valid raster or vector asset.
-  asset_type : str
-    The type of asset being represented. Possible values: table, raster
+  asset_type : int
+    A GME asset type defined by the Asset class.
   filepath : str
     The absolute path to the file.
   chunk_size : int
@@ -55,9 +83,6 @@ def upload_file_worker(ctx, asset_id, asset_type, filepath, chunk_size):
   def next_chunk(ctx, request):
     return request.next_chunk()
 
-  proc = current_process()
-  ctx.thread_safe_services[proc.ident] = ctx.get_authenticated_service(ctx.RW_SCOPE, "v1")
-
   ctx.log("Begun uploading %s" % (os.path.basename(filepath)))
   start_time = time.time()
 
@@ -65,7 +90,7 @@ def upload_file_worker(ctx, asset_id, asset_type, filepath, chunk_size):
   if not media.mimetype():
     media = MediaFileUpload(filepath, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
 
-  resource = ctx.thread_safe_services[proc.ident].tables() if asset_type == "vector" else ctx.thread_safe_services[proc.ident].rasters()
+  resource = get_asset_resource(ctx.service(ident=current_process().ident), asset_type)
   request = resource.files().insert(id=asset_id, filename=os.path.basename(filepath), media_body=media)
   response = None
   while response is None:
@@ -133,6 +158,8 @@ def upload_file_init(ctx, asset_id, asset_type, filepath):
   This forces it into an "uploading" state which prevents processing from
   occurring until all files are uploaded.
 
+  Built as an experiment and abandoned in favour of multithreaded uploading.
+
   Parameters
   ----------
   ctx : Context
@@ -186,6 +213,7 @@ def poll_asset_processing(ctx, asset_id, resource):
     if response['processingStatus'] in ['complete', 'failed']:
       return response
     elif response['processingStatus'] == 'ready':
+      # Fix for GME's issue where it mistakenly reports 'ready for processing' upon completion.
       process(ctx, resource, asset_id)
       raise Exception("Asset processing status is '%s'. Initiated reprocessing." % (response["processingStatus"]))
     else:
@@ -321,26 +349,6 @@ def getMapLayerIds(map):
         yield value["id"]
 
   return traverse(map["contents"])
-
-
-def getResourceForAsset(resource, type):
-  """Gets the correct base resource for any asset based on its type.
-
-  Parameters
-  ----------
-  resource : apiclient.discovey.Resource
-    A GME API Client discovery resource.
-  type : string
-    A GME asset type, typically returned from a type-agnostic resource (typically /assets/list).
-    Possible values: maps, layers, tables, rasters, rasterCollections.
-  """
-  return {
-    "map": resource.maps(),
-    "layer": resource.layers(),
-    "table": resource.tables(),
-    "raster": resource.rasters(),
-    "rasterCollection": resource.rasterCollections()
-  }[type]
 
 
 def obey_qps(qps=1, share=1):
