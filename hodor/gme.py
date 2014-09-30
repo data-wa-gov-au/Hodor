@@ -26,12 +26,15 @@ def upload_files_multithreaded(ctx, asset_id, asset_type, filepaths, chunk_size=
   """
   pool = ThreadPool(len(filepaths))
   for filepath in filepaths:
+    print "begin %s" % (filepath)
     pool.apply_async(upload_file_worker, args=(ctx, asset_id, asset_type, filepath, chunk_size,)).wait(timeout=1)
   pool.close()
   pool.join()
 
 
+@trace_unhandled_exceptions
 def upload_file_worker(ctx, asset_id, asset_type, filepath, chunk_size):
+  print "upload_file_worker %s" % (filepath)
   """Upload a given file to an asset in its own thread as
   part of upload_files_multithreaded().
 
@@ -150,7 +153,7 @@ def upload_file_init(ctx, asset_id, asset_type, filepath):
   if not media.mimetype():
     media = MediaFileUpload(filepath, mimetype='application/octet-stream', chunksize=chunk_size, resumable=True)
 
-  resource = ctx.service.tables() if asset_type == "vector" else ctx.service.rasters()
+  resource = ctx.service().tables() if asset_type == "vector" else ctx.service().rasters()
   request = resource.files().insert(id=asset_id, filename=os.path.basename(filepath), media_body=media)
 
   try:

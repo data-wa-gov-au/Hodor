@@ -38,7 +38,7 @@ def runjob(ctx, skip_upload, configfile):
 
   @retries(100)
   def getTableParents(ctx, table_id):
-    return ctx.service.tables().parents().list(id=table_id).execute()
+    return ctx.service().tables().parents().list(id=table_id).execute()
 
   def doesTempTableExist(ctx, table, config):
     request = resource.list(projectId=config["projectId"], search=table["name"].replace("_", " "), tags="ftrtemp")
@@ -58,7 +58,7 @@ def runjob(ctx, skip_upload, configfile):
 
   datasource_name_part = config["title"] + "_" + config['custodian']
   if "partNumber" in config and "partCount" in config:
-    datasource_name_part += "_" + str(config["partNumber"]) + "_of_" + str(config["partCount"])
+    datasource_name_full_sans_date = datasource_name_part + "_" + str(config["partNumber"]) + "_of_" + str(config["partCount"])
 
   resource = ctx.service().tables()
   request = resource.list(projectId=config["projectId"], search=datasource_name_part.replace("_", " "))
@@ -71,7 +71,7 @@ def runjob(ctx, skip_upload, configfile):
 
   valid_tables = []
   for t in tables:
-    m = re.search("^(" + datasource_name_part + "_[0-9]{8})$", t["name"])
+    m = re.search("^(" + datasource_name_full_sans_date + "_[0-9]{8})$", t["name"])
     if m and "archive" not in t["tags"]: # and t["processingStatus"] in ["complete", "failed", "processing", "notReady", "ready"]:
       valid_tables.append(t)
 
@@ -153,15 +153,15 @@ def createTemporaryTable(ctx, table):
 
   @retries(100)
   def get_table_schema(ctx, table):
-    return ctx.service.tables().get(id=table['id'], fields="schema").execute()["schema"]
+    return ctx.service().tables().get(id=table['id'], fields="schema").execute()["schema"]
 
   @retries(100)
   def create_table(ctx, config):
-    return ctx.service.tables().create(body=config).execute()
+    return ctx.service().tables().create(body=config).execute()
 
   @retries(100)
   def patch_table(ctx, table_id, config):
-    return ctx.service.tables().patch(id=table_id, body=config).execute()
+    return ctx.service().tables().patch(id=table_id, body=config).execute()
 
   schema = get_table_schema(ctx, table)
 
@@ -201,7 +201,7 @@ def patchLayers(ctx, layers, table_id):
 
   @retries(100)
   def patch(ctx, layer_id, body):
-    return ctx.service()(version="exp2").layers().patch(id=layer_id, body=body).execute()
+    return ctx.service(version="exp2").layers().patch(id=layer_id, body=body).execute()
 
   for l in layers:
     patch(ctx, l["id"], {
@@ -224,7 +224,7 @@ def replaceFiles(ctx, table_id, payload_dir):
   payload_dir : str
     The path of the payload directory containing the files.
   """
-
+  print "replaceFiles"
   # Fetch the payload files
   config = {}
   for (dirpath, dirnames, filenames) in os.walk(payload_dir):
@@ -233,9 +233,11 @@ def replaceFiles(ctx, table_id, payload_dir):
     break
 
   # Upload the payload files in separate threads
+  pp(filepaths)
   start_time = time.time()
   upload_files_multithreaded(ctx, table_id, "vector", filepaths, chunk_size=20971520)
   ctx.log("All uploads completed and took %s minutes" % (round((time.time() - start_time) / 60, 2)))
+  exit()
 
   # # Hacky workaround that doesn't use multi-threading.
   # # Force all asset files into "uploading" state by providing the first 256KB of each file.
@@ -266,7 +268,7 @@ def deleteTable(ctx, table_id):
 
   @retries(100)
   def delete(ctx, table_id):
-    return ctx.service.tables().delete(id=table_id).execute()
+    return ctx.service().tables().delete(id=table_id).execute()
 
   try:
     delete(ctx, table_id)
@@ -292,7 +294,7 @@ def reprocessAndRepublishLayers(ctx, layers):
   @retries(100, delay=5)
   def processLayer(ctx, layer_id):
     try:
-      return ctx.service.layers().process(id=layer_id).execute()
+      return ctx.service().layers().process(id=layer_id).execute()
     except HttpError as e:
       # "The resource is already up to date."
       if e.resp.status == 409:
@@ -416,11 +418,11 @@ def rollback_table_patch(ctx, table_id, ftrtemp_table_id):
 
   @retries(100)
   def getTable(ctx, table_id):
-    return ctx.service.tables().get(id=table_id).execute()
+    return ctx.service().tables().get(id=table_id).execute()
 
   @retries(100)
   def getTableParents(ctx, table_id):
-    return ctx.service.tables().parents().list(id=table_id).execute()
+    return ctx.service().tables().parents().list(id=table_id).execute()
 
   # Lazy validation that they both exist.
   table = getTable(ctx, table_id)
